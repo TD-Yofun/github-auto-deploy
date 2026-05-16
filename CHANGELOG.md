@@ -1,5 +1,18 @@
 
 
+## [1.0.4](https://github.com/TD-Yofun/talkdesk-auto-deploy/compare/v1.0.3...v1.0.4) (2026-05-16)
+
+
+### Features
+
+* log persistence, watchdog, auto-report, notifications, pause, overview ([b9a0990](https://github.com/TD-Yofun/talkdesk-auto-deploy/commit/b9a099010010134936cae5c41a91a87413cb679a))
+
+
+### Documentation
+
+* **commit-skill:** require docs sync check before src commits ([1e8cf01](https://github.com/TD-Yofun/talkdesk-auto-deploy/commit/1e8cf01ef499287ee9ba68066b8955e9cee0e189))
+* rewrite README and copilot-instructions for v1.0.3+ features ([6b4d7c1](https://github.com/TD-Yofun/talkdesk-auto-deploy/commit/6b4d7c1d75a1a37c7635e598e80704ab17de23e7))
+
 ## [1.0.3](https://github.com/TD-Yofun/talkdesk-auto-deploy/compare/v1.0.2...v1.0.3) (2026-05-16)
 
 
