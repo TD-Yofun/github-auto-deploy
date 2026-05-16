@@ -1,5 +1,12 @@
 
 
+## [1.0.7](https://github.com/TD-Yofun/talkdesk-auto-deploy/compare/v1.0.6...v1.0.7) (2026-05-16)
+
+
+### Bug Fixes
+
+* stabilize log ordering, terminal detection, and scroll behavior ([1f5c61e](https://github.com/TD-Yofun/talkdesk-auto-deploy/commit/1f5c61e53a41c4ea8bcd2c2a291133c7d24f6c8f))
+
 ## [1.0.6](https://github.com/TD-Yofun/talkdesk-auto-deploy/compare/v1.0.5...v1.0.6) (2026-05-16)
 
 
