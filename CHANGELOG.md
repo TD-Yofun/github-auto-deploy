@@ -1,5 +1,12 @@
 
 
+## [1.0.8](https://github.com/TD-Yofun/talkdesk-auto-deploy/compare/v1.0.7...v1.0.8) (2026-05-16)
+
+
+### Bug Fixes
+
+* narrow run-status detection to authoritative header element ([840cb3f](https://github.com/TD-Yofun/talkdesk-auto-deploy/commit/840cb3ff50c8041fd7ec901e0084bc3c4a2f04cf))
+
 ## [1.0.7](https://github.com/TD-Yofun/talkdesk-auto-deploy/compare/v1.0.6...v1.0.7) (2026-05-16)
 
 
