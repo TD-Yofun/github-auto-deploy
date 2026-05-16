@@ -36,25 +36,36 @@ export GITHUB_TOKEN=$(gh auth token)
 
 ---
 
-## Phase 2 — Choose Version Bump
+## Phase 2 — Choose Version Bump (USER DECIDES)
 
-Inspect the commits since the last tag to recommend the bump type:
+**The agent never picks the version unilaterally.** Always ask the user, even if the argument-hint was supplied — re-confirm before proceeding.
+
+Inspect commits since the last tag to give the user context:
 
 ```
-git log --format='%s' $(git describe --tags --abbrev=0 2>/dev/null || echo HEAD~10)..HEAD
+git describe --tags --abbrev=0
+git log --format='%h %s' $(git describe --tags --abbrev=0)..HEAD
 ```
 
-| Commit prefix found | Recommended bump |
+Present to the user:
+
+1. Current version (from `package.json`)
+2. The commit list above
+3. A reference table (not a decision) so the user can choose:
+
+| Convention | Typical bump |
 |---|---|
-| `feat!`, `BREAKING CHANGE` | `major` |
-| `feat:` (no breaking) | `minor` |
-| only `fix:` / `perf:` / `refactor:` / `docs:` / `chore:` | `patch` |
+| `feat!:` / `BREAKING CHANGE` | `major` |
+| `feat:` | `minor` |
+| `fix:` / `perf:` / `refactor:` / `docs:` / `chore:` | `patch` |
 
-Present the recommendation and the commit list to the user. Ask once for confirmation (or override with explicit version).
+Then ask the user explicitly: **"Which bump do you want — `patch`, `minor`, `major`, or an exact `x.y.z`?"** Wait for an answer. Do not assume.
+
+Note: `refactor!:` indicates a breaking change but no new feature; whether to release as `minor` or `major` is a judgement call — surface this to the user, do not decide for them.
 
 ---
 
-## Phase 3 — Dry Run (recommended)
+## Phase 3 — Dry Run (REQUIRED, then confirm)
 
 Always run a dry-run first to preview what release-it will do:
 
@@ -62,13 +73,13 @@ Always run a dry-run first to preview what release-it will do:
 npm run release:dry -- <bump>
 ```
 
-Where `<bump>` is `patch` / `minor` / `major` / `x.y.z`.
+Where `<bump>` is the value the user chose in Phase 2.
 
-Show the output to the user. Confirm before proceeding to the real release.
+Show the full output to the user, then **stop and explicitly ask: "Proceed with the real release?"** Wait for `yes` (or equivalent). Do not proceed on silence or ambiguity.
 
 ---
 
-## Phase 4 — Execute Release
+## Phase 4 — Execute Release (only after user confirms)
 
 ```
 npm run release -- <bump>
@@ -81,10 +92,23 @@ What release-it does automatically (per `.release-it.json`):
 3. Generate/update `CHANGELOG.md` from conventional commits
 4. Commit `chore: release v<x.y.z>`
 5. Create annotated tag `v<x.y.z>`
-6. Push commit + tag to `origin/main`
+6. **Push commit + tag to `origin/main`** ← non-reversible; this is why Phase 3 confirmation is required
 7. Create GitHub Release `v<x.y.z>` with both `.user.js` files attached
 
-Use `--ci` to skip interactive prompts in automated contexts.
+Use `--ci` to skip interactive prompts only when the user has already chosen the version and confirmed the dry-run.
+
+### Behind an HTTP proxy (octokit cannot reach api.github.com)
+
+release-it's octokit ignores lowercase `http_proxy` and `--github.proxy` is broken in recent versions. Fallback (still confirm with user before running):
+
+```
+npm run release -- <bump> --ci --github.skipChecks
+# release-it bumps/builds/commits/tags/pushes; the GitHub Release step is skipped
+gh release create v<x.y.z> \
+  --title v<x.y.z> \
+  --notes-file <(awk '/^## /{c++; if(c==2) exit} c==1' CHANGELOG.md) \
+  auto-approve-deploy.user.js auto-approve-deploy.min.user.js
+```
 
 ---
 
@@ -107,10 +131,21 @@ Report the release URL to the user.
 
 ---
 
-## Edge Cases
+## Edge Cases (ALL require explicit user confirmation before acting)
 
-- **No conventional commits since last tag**: release-it still works but `CHANGELOG.md` section will be empty. Warn the user; consider whether a release is meaningful.
-- **Build fails during `after:bump`**: release-it aborts before tagging. Fix the build, then re-run.
-- **Tag already exists**: indicates a previous incomplete release. Ask the user before deleting the tag (`git tag -d v<x.y.z> && git push --delete origin v<x.y.z>`).
-- **First release**: no prior tag exists. release-it will pick `1.0.0` from `package.json` as the base; recommend bumping to `1.0.1` (patch) or starting fresh from `0.1.0`.
+- **No conventional commits since last tag**: release-it still works but the `CHANGELOG.md` section will be empty. Warn the user and ask whether the release is still meaningful — do not proceed silently.
+- **Build fails during `after:bump`**: release-it aborts before tagging. Report the failure, fix the build, then ask the user before re-running.
+- **Tag already exists**: indicates a previous incomplete release. **Never delete tags automatically.** Show the user the local + remote tag state and ask before running `git tag -d v<x.y.z> && git push --delete origin v<x.y.z>`.
+- **First release**: no prior tag exists. release-it will use `package.json` version as the base; ask the user what initial version to publish (do not assume `1.0.0` vs `0.1.0`).
 - **Hotfix on non-main branch**: not supported by current config (`requireBranch: main`). Abort and instruct user to merge to main first.
+- **Working tree dirty / unpushed commits unrelated to the release**: stop and ask the user how to handle them (commit, stash, or discard) — never stash/discard without confirmation.
+
+## Confirmation Checklist
+
+Before the release lands on GitHub, the user must have explicitly answered:
+
+1. Which version bump (Phase 2)
+2. "Proceed with the real release?" after seeing dry-run output (Phase 3)
+3. Any edge-case prompt that involves deleting tags, force-pushing, or modifying history
+
+If any of the above was not explicitly confirmed, **stop and ask**.
