@@ -1,5 +1,12 @@
 
 
+## [1.0.5](https://github.com/TD-Yofun/talkdesk-auto-deploy/compare/v1.0.4...v1.0.5) (2026-05-16)
+
+
+### Bug Fixes
+
+* reset log on new Start and harden run-conclusion detection ([a5a4013](https://github.com/TD-Yofun/talkdesk-auto-deploy/commit/a5a40137310e7f09ec2771fb8bdb1274195c43fa))
+
 ## [1.0.4](https://github.com/TD-Yofun/talkdesk-auto-deploy/compare/v1.0.3...v1.0.4) (2026-05-16)
 
 
