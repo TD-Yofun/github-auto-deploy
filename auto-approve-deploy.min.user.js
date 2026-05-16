@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auto-Approve Deploy Gates
 // @namespace    https://github.com/auto-deploy-gates
-// @version      1.0.0
+// @version      1.0.1
 // @author       auto-deploy
 // @description  Automatically approve GitHub Actions deployment gates & skip wait timers
 // @homepageURL  https://github.com/TD-Yofun/talkdesk-auto-deploy
