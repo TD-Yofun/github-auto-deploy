@@ -4,10 +4,15 @@
 // @version      1.0.0
 // @author       auto-deploy
 // @description  Automatically approve GitHub Actions deployment gates & skip wait timers
+// @homepageURL  https://github.com/TD-Yofun/talkdesk-auto-deploy
+// @supportURL   https://github.com/TD-Yofun/talkdesk-auto-deploy/issues
+// @downloadURL  https://github.com/TD-Yofun/talkdesk-auto-deploy/releases/latest/download/auto-approve-deploy.min.user.js
+// @updateURL    https://github.com/TD-Yofun/talkdesk-auto-deploy/releases/latest/download/auto-approve-deploy.min.user.js
 // @match        https://github.com/*/actions/runs/*
 // @connect      api.github.com
 // @grant        GM_addStyle
 // @grant        GM_getValue
+// @grant        GM_info
 // @grant        GM_registerMenuCommand
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
@@ -355,6 +360,88 @@
       addLog2(`[skip] Error: ${e.message}`, "warn");
       return false;
     }
+  }
+  const REPO = "TD-Yofun/talkdesk-auto-deploy";
+  const CACHE_KEY = "aad_version_cache";
+  const CACHE_TTL_MS = 60 * 60 * 1e3;
+  function getCurrentVersion() {
+    var _a;
+    try {
+      return ((_a = GM_info == null ? void 0 : GM_info.script) == null ? void 0 : _a.version) || "0.0.0";
+    } catch {
+      return "0.0.0";
+    }
+  }
+  async function checkLatestVersion(current) {
+    const cached = readCache();
+    if (cached) {
+      return {
+        current,
+        latest: cached.latest,
+        outdated: isNewer(cached.latest, current),
+        releaseUrl: cached.releaseUrl
+      };
+    }
+    return new Promise((resolve, reject) => {
+      GM_xmlhttpRequest({
+        method: "GET",
+        url: `https://api.github.com/repos/${REPO}/releases/latest`,
+        headers: { Accept: "application/vnd.github+json" },
+        onload(r) {
+          if (r.status >= 200 && r.status < 300) {
+            try {
+              const data = JSON.parse(r.responseText);
+              const latest = String(data.tag_name || "").replace(/^v/, "");
+              const releaseUrl = data.html_url || `https://github.com/${REPO}/releases/latest`;
+              writeCache({ latest, releaseUrl, ts: Date.now() });
+              resolve({
+                current,
+                latest,
+                outdated: isNewer(latest, current),
+                releaseUrl
+              });
+            } catch {
+              reject(new Error("Failed to parse latest release"));
+            }
+          } else if (r.status === 404) {
+            resolve({ current, latest: current, outdated: false, releaseUrl: `https://github.com/${REPO}/releases` });
+          } else {
+            reject(new Error(`HTTP ${r.status}`));
+          }
+        },
+        onerror() {
+          reject(new Error("Network error"));
+        }
+      });
+    });
+  }
+  function readCache() {
+    try {
+      const raw = GM_getValue(CACHE_KEY, "");
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (Date.now() - data.ts > CACHE_TTL_MS) return null;
+      return data;
+    } catch {
+      return null;
+    }
+  }
+  function writeCache(data) {
+    try {
+      GM_setValue(CACHE_KEY, JSON.stringify(data));
+    } catch {
+    }
+  }
+  function isNewer(a, b) {
+    const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+    const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const x = pa[i] || 0;
+      const y = pb[i] || 0;
+      if (x > y) return true;
+      if (x < y) return false;
+    }
+    return false;
   }
   const ts = () => ( new Date()).toLocaleTimeString("en-US", { hour12: false });
   function esc(s) {
@@ -848,6 +935,10 @@
       log("Refreshing page...");
       location.reload();
     }, start = function() {
+      if (versionBlocked) {
+        log("⛔ Cannot start: outdated version. Please update first.", "err");
+        return;
+      }
       if (!config.token) {
         promptToken();
         return;
@@ -868,6 +959,10 @@
       startSkipObserver();
       poll();
     }, resume = function() {
+      if (versionBlocked) {
+        log("⛔ Cannot resume: outdated version. Please update first.", "err");
+        return;
+      }
       if (!config.token) {
         promptToken();
         return;
@@ -912,6 +1007,7 @@
     let skipInProgress = false;
     let skipCooldownUntil = 0;
     let disconnectSkipObserver = null;
+    let versionBlocked = false;
     async function handleSkipDetected() {
       if (skipInProgress || !state.running || !config.autoSkip) return;
       if (Date.now() < skipCooldownUntil) return;
@@ -1096,6 +1192,23 @@
     GM_registerMenuCommand("🚀 Start Monitoring", start);
     GM_registerMenuCommand("⏹ Stop Monitoring", stop);
     (async function init() {
+      const currentVersion = getCurrentVersion();
+      try {
+        const v = await checkLatestVersion(currentVersion);
+        if (v.outdated) {
+          versionBlocked = true;
+          el.$info.innerHTML = `<div style="color:#f85149;font-weight:600">⛔ 脚本版本过期，请更新后使用</div>
+          <div style="margin-top:4px;font-size:11px">当前: <code>${esc(v.current)}</code> · 最新: <code>${esc(v.latest)}</code></div>
+          <div style="margin-top:6px"><a href="${esc(v.releaseUrl)}" target="_blank" rel="noopener" style="color:#58a6ff">📥 点此下载最新版本</a></div>`;
+          log(`⛔ Outdated: ${v.current} → ${v.latest}. Update required.`, "err");
+          el.$toggleBtn.disabled = true;
+          el.$toggleBtn.textContent = "⛔ Outdated";
+          return;
+        }
+        log(`✅ Version check passed (${v.current})`, "ok");
+      } catch (e) {
+        log(`⚠️ Version check failed: ${e.message} — proceeding anyway`, "warn");
+      }
       if (!config.token) {
         el.$info.innerHTML = `<span style="color:#d29922">⚠️ No token configured — click <b>🔑 Token</b> to set one.</span>`;
         log("No token configured. Click 🔑 Token to set your GitHub token.", "warn");

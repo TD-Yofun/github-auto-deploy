@@ -8,6 +8,7 @@ import { initLogStore, setLogSaving, downloadLog } from './core/log-store';
 import { saveRunningState, wasRunning, saveSession, loadSession, clearSession } from './core/session';
 import { fetchRunInfo, fetchPending, approveDeployments, skipWaitTimersViaApi, fetchJobs } from './api/api';
 import { trySkipWaitTimers, observeSkipButton } from './api/skip-timers';
+import { checkLatestVersion, getCurrentVersion } from './core/version-check';
 import { esc } from './utils/helpers';
 import { injectStyles } from './ui/styles';
 import {
@@ -33,6 +34,7 @@ if (params) {
   let skipInProgress = false;
   let skipCooldownUntil = 0;
   let disconnectSkipObserver: (() => void) | null = null;
+  let versionBlocked = false;
 
   function recordEvent(type: string, detail: string): void {
     state.sessionEvents.push({ ts: Date.now(), type, detail });
@@ -246,8 +248,10 @@ if (params) {
   }
 
   // ── Lifecycle ────────────────────────────────────────────
-  function start(): void {
-    if (!config.token) {
+  function start(): void {    if (versionBlocked) {
+      log('⛔ Cannot start: outdated version. Please update first.', 'err');
+      return;
+    }    if (!config.token) {
       promptToken();
       return;
     }
@@ -269,6 +273,10 @@ if (params) {
   }
 
   function resume(): void {
+    if (versionBlocked) {
+      log('⛔ Cannot resume: outdated version. Please update first.', 'err');
+      return;
+    }
     if (!config.token) {
       promptToken();
       return;
@@ -350,7 +358,24 @@ if (params) {
   GM_registerMenuCommand('⏹ Stop Monitoring', stop);
 
   // ── Init ──────────────────────────────────────────────────
-  (async function init(): Promise<void> {
+  (async function init(): Promise<void> {    // Version check — block if outdated
+    const currentVersion = getCurrentVersion();
+    try {
+      const v = await checkLatestVersion(currentVersion);
+      if (v.outdated) {
+        versionBlocked = true;
+        el.$info.innerHTML = `<div style="color:#f85149;font-weight:600">⛔ 脚本版本过期，请更新后使用</div>
+          <div style="margin-top:4px;font-size:11px">当前: <code>${esc(v.current)}</code> · 最新: <code>${esc(v.latest)}</code></div>
+          <div style="margin-top:6px"><a href="${esc(v.releaseUrl)}" target="_blank" rel="noopener" style="color:#58a6ff">📥 点此下载最新版本</a></div>`;
+        log(`⛔ Outdated: ${v.current} → ${v.latest}. Update required.`, 'err');
+        el.$toggleBtn.disabled = true;
+        el.$toggleBtn.textContent = '⛔ Outdated';
+        return;
+      }
+      log(`✅ Version check passed (${v.current})`, 'ok');
+    } catch (e) {
+      log(`⚠️ Version check failed: ${(e as Error).message} — proceeding anyway`, 'warn');
+    }
     if (!config.token) {
       el.$info.innerHTML = `<span style="color:#d29922">⚠️ No token configured — click <b>🔑 Token</b> to set one.</span>`;
       log('No token configured. Click 🔑 Token to set your GitHub token.', 'warn');

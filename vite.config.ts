@@ -1,12 +1,19 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig, type Plugin } from 'vite';
 import monkey, { type MonkeyUserScript } from 'vite-plugin-monkey';
+
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'));
 
 const userscriptConfig: MonkeyUserScript = {
   name: 'Auto-Approve Deploy Gates',
   namespace: 'https://github.com/auto-deploy-gates',
-  version: '1.0.0',
+  version: pkg.version,
   description: 'Automatically approve GitHub Actions deployment gates & skip wait timers',
   author: 'auto-deploy',
+  homepageURL: 'https://github.com/TD-Yofun/talkdesk-auto-deploy',
+  supportURL: 'https://github.com/TD-Yofun/talkdesk-auto-deploy/issues',
+  updateURL: 'https://github.com/TD-Yofun/talkdesk-auto-deploy/releases/latest/download/auto-approve-deploy.min.user.js',
+  downloadURL: 'https://github.com/TD-Yofun/talkdesk-auto-deploy/releases/latest/download/auto-approve-deploy.min.user.js',
   match: ['https://github.com/*/actions/runs/*'],
   grant: [
     'GM_xmlhttpRequest',
