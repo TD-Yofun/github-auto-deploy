@@ -4,7 +4,7 @@
  */
 const REPO = 'TD-Yofun/talkdesk-auto-deploy';
 const CACHE_KEY = 'aad_version_cache';
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const CACHE_TTL_MS = 15 * 60 * 1000; // 15 min — short enough to surface new releases promptly
 
 export interface VersionCheckResult {
   current: string;
@@ -31,7 +31,10 @@ export function getCurrentVersion(): string {
 
 export async function checkLatestVersion(current: string): Promise<VersionCheckResult> {
   const cached = readCache();
-  if (cached) {
+  // Use cache only if cached.latest is still >= current. If the installed script
+  // is newer than what we last saw as "latest", the cache is definitely stale
+  // (user just updated) — refetch so we surface the next release promptly.
+  if (cached && !isNewer(current, cached.latest)) {
     return {
       current,
       latest: cached.latest,

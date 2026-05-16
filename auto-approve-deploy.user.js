@@ -370,7 +370,7 @@
   }
   const REPO = "TD-Yofun/talkdesk-auto-deploy";
   const CACHE_KEY = "aad_version_cache";
-  const CACHE_TTL_MS = 60 * 60 * 1e3;
+  const CACHE_TTL_MS = 15 * 60 * 1e3;
   function getCurrentVersion() {
     var _a;
     try {
@@ -381,7 +381,7 @@
   }
   async function checkLatestVersion(current) {
     const cached = readCache();
-    if (cached) {
+    if (cached && !isNewer(current, cached.latest)) {
       return {
         current,
         latest: cached.latest,
