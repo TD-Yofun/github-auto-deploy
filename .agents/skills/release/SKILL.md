@@ -1,12 +1,26 @@
 ---
 name: release
-description: 'Publish a new release using release-it (conventional commits → version bump → build → tag → GitHub Release). Use when the user asks to release, publish, cut a version, or says "release", "发布", "出新版本".'
+description: 'Publish a new release: local `release-it` bumps/builds/commits/tags, user pushes, GitHub Actions creates the GitHub Release. Use when the user asks to release, publish, cut a version, or says "release", "发布", "出新版本".'
 argument-hint: 'Optional: patch | minor | major | x.y.z'
 ---
 
 # Release Workflow
 
-Publish a new version of the userscript using `release-it`. The flow bumps `package.json`, rebuilds both `.user.js` artifacts (version is read from `package.json` by `vite.config.ts`), generates `CHANGELOG.md` from conventional commits, creates a git tag, and publishes a GitHub Release with the built userscript files attached.
+Releases are split between **local** and **CI**:
+
+| Step | Where | Tool |
+|---|---|---|
+| Bump `package.json` | local | release-it |
+| Build `.user.js` artifacts | local | `npm run build` (release-it `after:bump` hook) |
+| Update `CHANGELOG.md` | local | `@release-it/conventional-changelog` |
+| Commit `chore: release v<x.y.z>` | local | release-it |
+| Create annotated tag `v<x.y.z>` | local | release-it |
+| Push commit + tag | local (manual) | `git push --follow-tags` |
+| Create GitHub Release + upload assets | **CI** | `.github/workflows/release.yml` triggered by tag push |
+
+This split exists because the dev machine sits behind an HTTP proxy that Node's octokit (used by release-it for GitHub API calls) cannot traverse. GitHub Actions runners have no such restriction, so the Release step is delegated to CI.
+
+Per `.release-it.json`: `git.push = false`, `github.release = false`. release-it never talks to api.github.com locally.
 
 ---
 
@@ -18,21 +32,15 @@ Run simultaneously:
 git status --short
 git rev-parse --abbrev-ref HEAD
 git log --format='%s' origin/main..HEAD
-gh auth status
 ```
 
 Requirements (abort with clear message if any fails):
 
 - Working directory **clean** (no uncommitted changes)
 - Current branch is **main**
-- At least one commit ahead of `origin/main` (otherwise nothing to release)
-- `gh` is authenticated (needed for GitHub Release creation)
-- `GITHUB_TOKEN` environment variable is set OR `gh auth token` works (release-it reads from one of them)
+- At least one commit ahead of `origin/main` is fine; being behind is **not** fine — pull first
 
-If `GITHUB_TOKEN` is missing, suggest:
-```
-export GITHUB_TOKEN=$(gh auth token)
-```
+No `GITHUB_TOKEN` or `gh auth` is needed locally anymore (the CI workflow uses the auto-provided `GITHUB_TOKEN`).
 
 ---
 
@@ -73,69 +81,68 @@ Always run a dry-run first to preview what release-it will do. **Always pass `--
 npm run release:dry -- <bump> --ci
 ```
 
-Where `<bump>` is the value the user chose in Phase 2.
-
-**Do NOT pipe the command through `tee` / `tail` / `head`** — release-it's output is line-buffered and pipes hide the interactive prompts (and even with `--ci`, buffering delays output). Either run it unpiped, or redirect to a file with `> /tmp/dry.log 2>&1` and read the file after.
+**Do NOT pipe through `tee` / `tail` / `head`** — release-it's output is line-buffered and pipes hide interactive prompts; even with `--ci`, pipes can delay output. Run unpiped, or redirect: `> /tmp/dry.log 2>&1` and read the file after.
 
 If you forget `--ci`, the command will appear to hang silently because release-it is waiting on a `(y/N)` prompt that the pipe is buffering.
 
-Show the full output to the user, then **stop and explicitly ask: "Proceed with the real release?"** Wait for `yes` (or equivalent). Do not proceed on silence or ambiguity.
+Show the full output to the user. Confirm in particular:
+
+- Old → new version is what the user chose
+- Commit list matches what's actually in the changelog section
+- The dry-run shows `! git tag ...` but **does NOT show** `! git push` or `! octokit repos.createRelease` (because they're disabled in `.release-it.json` — if they appear, the config drifted and you must stop)
+
+Then **stop and explicitly ask: "Proceed with the real release?"** Wait for `yes` (or equivalent). Do not proceed on silence or ambiguity.
 
 ---
 
-## Phase 4 — Execute Release (only after user confirms)
+## Phase 4 — Execute Local Release
 
 ```
-npm run release -- <bump>
+npm run release -- <bump> --ci
 ```
 
-What release-it does automatically (per `.release-it.json`):
+This bumps `package.json`, runs `npm run build`, writes `CHANGELOG.md`, commits `chore: release v<x.y.z>`, and creates an annotated tag `v<x.y.z>` — all **local**. Nothing is pushed.
 
-1. Bump `version` in `package.json`
-2. Run `after:bump` hook → `npm run build` (rebuilds both `.user.js` artifacts with new `@version`)
-3. Generate/update `CHANGELOG.md` from conventional commits
-4. Commit `chore: release v<x.y.z>`
-5. Create annotated tag `v<x.y.z>`
-6. **Push commit + tag to `origin/main`** ← non-reversible; this is why Phase 3 confirmation is required
-7. Create GitHub Release `v<x.y.z>` with both `.user.js` files attached
-
-Use `--ci` to skip interactive prompts only when the user has already chosen the version and confirmed the dry-run.
-
-### Behind an HTTP proxy (octokit cannot reach api.github.com)
-
-release-it uses **octokit** (GitHub's JS SDK) for the `repos.createRelease` and `repos.uploadReleaseAssets` steps. octokit goes through Node's `fetch`/`undici`, which **does not honour `http_proxy` / `https_proxy` environment variables**, and release-it's `--github.proxy` option is broken in recent octokit versions. Symptom: every step works (bump, build, commit, tag, push via system `git`) until the GitHub API call fails with `Could not authenticate with GitHub using environment variable "GITHUB_TOKEN"` — the token is fine; the request never reached api.github.com.
-
-`gh` CLI is a Go binary and respects system proxy settings, so the workaround is to let release-it do everything except the GitHub Release, then create the Release manually with `gh`. Confirm with the user before running:
-
-```
-# 1. release-it: bump / build / commit / tag / push — skip GitHub Release upload
-npm run release -- <bump> --ci --github.skipChecks
-
-# 2. Create the GitHub Release + upload assets via gh (uses system proxy)
-gh release create v<x.y.z> \
-  --title v<x.y.z> \
-  --notes-file <(awk '/^## /{c++; if(c==2) exit} c==1' CHANGELOG.md) \
-  auto-approve-deploy.user.js auto-approve-deploy.min.user.js
-```
-
-If the previous `npm run release` already pushed the tag before failing on the octokit step, the local repo and remote are already in the correct state — just run step 2 alone (no need to re-bump).
+A `WARNING Environment variable "GITHUB_TOKEN" is required... Falling back to web-based GitHub Release` line may appear. Ignore it — we don't need it; CI handles the Release.
 
 ---
 
-## Phase 5 — Verify
+## Phase 5 — Push (USER CONFIRMS — pushing the tag triggers CI)
 
-After release-it completes:
+Show the user what's about to be pushed:
 
 ```
+git log --oneline origin/main..HEAD
+git tag --list 'v*' --points-at HEAD
+```
+
+Then **stop and ask: "Push commit + tag to origin/main? This will trigger the Release workflow."** Wait for explicit confirmation.
+
+On confirmation:
+
+```
+git push --follow-tags origin main
+```
+
+---
+
+## Phase 6 — Watch CI & Verify
+
+After push, the `Release` workflow (`.github/workflows/release.yml`) triggers on the new `v*` tag. It checks out, runs `npm ci && npm run build`, verifies `package.json` version matches the tag, extracts the latest section from `CHANGELOG.md` as release notes, and uploads both `.user.js` files via `softprops/action-gh-release@v2`.
+
+Monitor the run and verify the result:
+
+```
+gh run watch --exit-status            # or: gh run list --workflow=release.yml --limit 3
 gh release view v<x.y.z>
-git log --oneline -3
 ```
 
 Confirm:
+
+- Workflow succeeded
 - Release page exists with both `auto-approve-deploy.user.js` and `auto-approve-deploy.min.user.js` attached
-- Tag pushed to remote
-- `CHANGELOG.md` updated and committed
-- Built `.user.js` files contain the new `@version` line
+- Release notes match the latest CHANGELOG section
+- `@version` in the built userscript matches the tag
 
 Report the release URL to the user.
 
@@ -143,19 +150,21 @@ Report the release URL to the user.
 
 ## Edge Cases (ALL require explicit user confirmation before acting)
 
-- **No conventional commits since last tag**: release-it still works but the `CHANGELOG.md` section will be empty. Warn the user and ask whether the release is still meaningful — do not proceed silently.
-- **Build fails during `after:bump`**: release-it aborts before tagging. Report the failure, fix the build, then ask the user before re-running.
-- **Tag already exists**: indicates a previous incomplete release. **Never delete tags automatically.** Show the user the local + remote tag state and ask before running `git tag -d v<x.y.z> && git push --delete origin v<x.y.z>`.
-- **First release**: no prior tag exists. release-it will use `package.json` version as the base; ask the user what initial version to publish (do not assume `1.0.0` vs `0.1.0`).
+- **No conventional commits since last tag**: release-it still works but the `CHANGELOG.md` section will be empty. Warn the user and ask whether the release is still meaningful.
+- **Build fails during `after:bump`**: release-it aborts before tagging. Report the failure, fix the build, then ask before re-running.
+- **Tag already exists locally**: indicates a previous incomplete release. **Never delete tags automatically.** Show the user the local + remote tag state and ask before running `git tag -d v<x.y.z>` (and `git push --delete origin v<x.y.z>` if remote).
+- **Tag pushed but CI failed**: tag is on remote, no Release exists. Either re-run the workflow (`gh run rerun <id>`) or create the Release manually with `gh release create v<x.y.z> --notes-file <notes> auto-approve-deploy.user.js auto-approve-deploy.min.user.js`. Do not delete and re-tag.
+- **First release**: no prior tag exists. release-it uses `package.json` version as the base; ask the user what initial version to publish.
 - **Hotfix on non-main branch**: not supported by current config (`requireBranch: main`). Abort and instruct user to merge to main first.
-- **Working tree dirty / unpushed commits unrelated to the release**: stop and ask the user how to handle them (commit, stash, or discard) — never stash/discard without confirmation.
+- **Working tree dirty / unrelated unpushed commits**: stop and ask the user how to handle them — never stash/discard without confirmation.
 
 ## Confirmation Checklist
 
-Before the release lands on GitHub, the user must have explicitly answered:
+The user must explicitly answer before the release reaches GitHub:
 
 1. Which version bump (Phase 2)
-2. "Proceed with the real release?" after seeing dry-run output (Phase 3)
-3. Any edge-case prompt that involves deleting tags, force-pushing, or modifying history
+2. "Proceed with the real release?" after dry-run (Phase 3)
+3. "Push commit + tag?" before triggering CI (Phase 5)
+4. Any edge-case prompt that involves deleting tags or modifying history
 
 If any of the above was not explicitly confirmed, **stop and ask**.

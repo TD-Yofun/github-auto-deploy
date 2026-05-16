@@ -6,22 +6,17 @@
     "tagAnnotation": "Release v${version}",
     "requireCleanWorkingDir": true,
     "requireBranch": "main",
-    "push": true
+    "push": false
   },
   "github": {
-    "release": true,
-    "releaseName": "v${version}",
-    "assets": [
-      "auto-approve-deploy.user.js",
-      "auto-approve-deploy.min.user.js"
-    ]
+    "release": false
   },
   "npm": {
     "publish": false
   },
   "hooks": {
     "after:bump": "npm run build",
-    "after:release": "echo Released ${name} v${version} to ${repo.repository}"
+    "after:release": "echo Local release prepared for ${name} v${version}. Run: git push --follow-tags origin main"
   },
   "plugins": {
     "@release-it/conventional-changelog": {
