@@ -33,13 +33,6 @@ let skipCooldownUntil = 0;
 let versionBlocked = false;
 let disconnectSkipObserver: (() => void) | null = null;
 let lastConclusion = '';
-// Terminal conclusion must persist across N consecutive polls before we stop.
-// Guards against transient flashes between deploy stages where the run-level
-// header momentarily shows a per-stage success icon before transitioning to
-// the next stage's waiting state.
-let pendingTerminal = '';
-let pendingTerminalSeen = 0;
-const TERMINAL_CONFIRM_POLLS = 2;
 
 // ── Global error capture → log ─────────────────────────────
 window.addEventListener('error', (e) => {
@@ -161,26 +154,9 @@ async function poll(): Promise<void> {
     lastConclusion = conclusion;
   }
   if (isTerminalConclusion(conclusion)) {
-    if (pendingTerminal === conclusion) {
-      pendingTerminalSeen++;
-    } else {
-      pendingTerminal = conclusion;
-      pendingTerminalSeen = 1;
-    }
-    if (pendingTerminalSeen >= TERMINAL_CONFIRM_POLLS) {
-      log(`🏁 Workflow ${conclusion} confirmed (${pendingTerminalSeen} polls) — stopping and generating report`, 'ok');
-      stop(false);
-      return;
-    } else {
-      log(`⏳ Saw terminal status ${conclusion} — waiting one more poll to confirm (avoids cross-stage flashes)`);
-    }
-  } else {
-    // Non-terminal — clear any pending terminal confirmation
-    if (pendingTerminal) {
-      log(`↩ Pending terminal ${pendingTerminal} cleared (status returned to ${conclusion || 'unknown'})`);
-      pendingTerminal = '';
-      pendingTerminalSeen = 0;
-    }
+    log(`🏁 Workflow ${conclusion} — stopping and generating report`, 'ok');
+    stop(false);
+    return;
   }
 
   // Watchdog: if no progress for WATCHDOG_TIMEOUT_MS, reload page to recover from stuck state
@@ -238,8 +214,6 @@ function start(): void {
   state.monitorStartedAt = Date.now();
   state.lastProgressAt = Date.now();
   lastConclusion = '';
-  pendingTerminal = '';
-  pendingTerminalSeen = 0;
   clearSession(cur.runId);
   clearStoredLogs();
   if (el) el.$log.innerHTML = '';
@@ -306,40 +280,26 @@ function resumeMonitoring(): void {
 
 /** Best-effort read of workflow run conclusion from the page DOM. */
 function readRunConclusion(): string {
-  // Strategy 1: explicit selectors known to point at the run-level status icon.
-  const explicitSelectors = [
+  // Authoritative: the run-level status icon lives inside the PageHeader's
+  // `.actions-workflow-runs-status` container. If we find it, trust it —
+  // never fall back to a global scan, which can pick up unrelated icons
+  // (e.g. per-attempt success icons in the "Latest #N" dropdown overlay,
+  // or per-job status icons further down the page).
+  const runHeaderSelectors = [
     '.actions-workflow-runs-status svg[aria-label]',
     '[data-testid="workflow-run-status"] svg[aria-label]',
-    '[data-testid="status-icon"]',
-    '[data-testid="status-icon"] svg[aria-label]',
-    'div.PageHeader svg.octicon[aria-label]',
-    'header svg.octicon[aria-label][class*="color-fg-"]',
   ];
-  for (const sel of explicitSelectors) {
+  for (const sel of runHeaderSelectors) {
     const node = document.querySelector<Element>(sel);
     if (node) {
-      const c = mapConclusionEl(node);
-      if (c) return c;
+      // Element is authoritative — return whatever it maps to, or default
+      // to 'in_progress' (the run is rendering, just no terminal class yet).
+      return mapConclusionEl(node) || 'in_progress';
     }
   }
 
-  // Strategy 2: top-most colored octicon in the page header area (≤ 400px from top).
-  // Filters out per-job status icons which sit further down the page.
-  const candidates = Array.from(document.querySelectorAll<SVGElement>(
-    'svg.octicon[aria-label][class*="color-fg-"]'
-  ));
-  candidates.sort(
-    (a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top
-  );
-  for (const node of candidates) {
-    const top = node.getBoundingClientRect().top;
-    if (top < 0) continue;
-    if (top > 400) break;
-    const c = mapConclusionEl(node);
-    if (c) return c;
-  }
-
-  // Strategy 3: text-based "Status" pill (legacy / fallback layouts).
+  // Fallback: text-based "Status" pill for legacy layouts where the icon
+  // container above is absent.
   const statePill = document.querySelector<HTMLElement>(
     'span[class*="State--"], [class*="StatusBadge"], [class*="status-badge"]'
   );
@@ -373,7 +333,7 @@ function mapConclusionFromText(text: string): string {
   if (/timed.?out/.test(t)) return 'timed_out';
   if (/skipped/.test(t)) return 'skipped';
   if (/action.?required/.test(t)) return 'action_required';
-  if (/in.?progress|queued|waiting|pending|requested/.test(t)) return 'in_progress';
+  if (/in.?progress|currently.?running|running|queued|waiting|pending|requested/.test(t)) return 'in_progress';
   return '';
 }
 
@@ -464,11 +424,14 @@ function buildPanelFor(params: RunParams): void {
   log(`Ready — ${params.owner}/${params.repo} run #${params.runId}`);
   currentRunId = params.runId;
 
-  runVersionCheck();
-
+  // Skip the version check when we're about to resume an in-flight run — the
+  // outdated-version banner would only add noise during active monitoring and
+  // the network call is wasted. The next idle mount (no resume) will check.
   if (wasRunning(params.runId)) {
     log('🔄 Resuming after page refresh...', 'ok');
     resume();
+  } else {
+    runVersionCheck();
   }
 }
 
