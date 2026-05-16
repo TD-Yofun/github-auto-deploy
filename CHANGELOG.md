@@ -1,5 +1,12 @@
 
 
+## [1.0.9](https://github.com/TD-Yofun/talkdesk-auto-deploy/compare/v1.0.8...v1.0.9) (2026-05-16)
+
+
+### Features
+
+* react to header status mutations for near-instant terminal detection ([7d6c96e](https://github.com/TD-Yofun/talkdesk-auto-deploy/commit/7d6c96e15daa0c5dbeebe44e28a68228d2edec4a))
+
 ## [1.0.8](https://github.com/TD-Yofun/talkdesk-auto-deploy/compare/v1.0.7...v1.0.8) (2026-05-16)
 
 
