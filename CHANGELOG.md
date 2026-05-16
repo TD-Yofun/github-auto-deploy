@@ -1,5 +1,13 @@
 
 
+## [1.0.6](https://github.com/TD-Yofun/talkdesk-auto-deploy/compare/v1.0.5...v1.0.6) (2026-05-16)
+
+
+### Bug Fixes
+
+* harden poll scheduler and skip-button observer against silent failure ([7258bfc](https://github.com/TD-Yofun/talkdesk-auto-deploy/commit/7258bfcd4971dfd931ce795cb1dd2d9079d0932c))
+* **version-check:** shorten cache TTL and invalidate when current > cached ([21b5b4c](https://github.com/TD-Yofun/talkdesk-auto-deploy/commit/21b5b4c7cb6a908e3d3d7c198b774598f4b60e10))
+
 ## [1.0.5](https://github.com/TD-Yofun/talkdesk-auto-deploy/compare/v1.0.4...v1.0.5) (2026-05-16)
 
 
