@@ -1,5 +1,17 @@
 
 
+## [1.0.3](https://github.com/TD-Yofun/talkdesk-auto-deploy/compare/v1.0.2...v1.0.3) (2026-05-16)
+
+
+### Features
+
+* show release notes and disable controls when outdated ([6b9166f](https://github.com/TD-Yofun/talkdesk-auto-deploy/commit/6b9166f307055665189f0d0bf5047143430aa8e1))
+
+
+### Bug Fixes
+
+* detect Deploy (PRD) header even with emoji/icon prefix ([d07e8fb](https://github.com/TD-Yofun/talkdesk-auto-deploy/commit/d07e8fb445c3206239acfbd9e8d88ca6ff5bfdc6))
+
 ## [1.0.2](https://github.com/TD-Yofun/talkdesk-auto-deploy/compare/v1.0.1...v1.0.2) (2026-05-16)
 
 

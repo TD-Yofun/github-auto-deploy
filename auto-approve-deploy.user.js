@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auto-Approve Deploy Gates
 // @namespace    https://github.com/auto-deploy-gates
-// @version      1.0.2
+// @version      1.0.3
 // @author       auto-deploy
 // @description  Automatically click "Start all waiting jobs" on Deploy (PRD) workflow runs
 // @homepageURL  https://github.com/TD-Yofun/talkdesk-auto-deploy
