@@ -42,6 +42,13 @@ export function getStoredLogs(): string[] {
   return data;
 }
 
+/** Wipe both the in-memory buffer and the persisted log for the current run. */
+export function clearStoredLogs(): void {
+  _logBuffer = [];
+  if (_logFlushTimer) { clearTimeout(_logFlushTimer); _logFlushTimer = null; }
+  if (_logStoreKey) GM_setValue(_logStoreKey, []);
+}
+
 export function downloadLog(runId: string): void {
   const lines = getStoredLogs();
   if (lines.length === 0) {

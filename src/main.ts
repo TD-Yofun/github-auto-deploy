@@ -7,7 +7,7 @@
 import { parseUrl, isDeployPRDPage, getWorkflowName, type RunParams } from './utils/url';
 import { loadConfig, saveConfigField } from './core/config';
 import { createState, WATCHDOG_TIMEOUT_MS, type State } from './core/state';
-import { initLogStore, downloadLog } from './core/log-store';
+import { initLogStore, downloadLog, clearStoredLogs } from './core/log-store';
 import { saveRunningState, wasRunning, saveSession, loadSession, clearSession } from './core/session';
 import { scheduleTick, cancelTick } from './core/scheduler';
 import { trySkipWaitTimers, observeSkipButton } from './api/skip-timers';
@@ -32,6 +32,7 @@ let skipInProgress = false;
 let skipCooldownUntil = 0;
 let versionBlocked = false;
 let disconnectSkipObserver: (() => void) | null = null;
+let lastConclusion = '';
 
 // ── Global error capture → log ─────────────────────────────
 window.addEventListener('error', (e) => {
@@ -148,6 +149,10 @@ async function poll(): Promise<void> {
 
   // Auto-stop when workflow has reached a terminal conclusion
   const conclusion = readRunConclusion();
+  if (conclusion && conclusion !== lastConclusion) {
+    log(`🔍 Run status detected: ${conclusion}`);
+    lastConclusion = conclusion;
+  }
   if (isTerminalConclusion(conclusion)) {
     log(`🏁 Workflow ${conclusion} — stopping and generating report`, 'ok');
     stop(false);
@@ -204,7 +209,10 @@ function start(): void {
   state.pollCycle = 0;
   state.monitorStartedAt = Date.now();
   state.lastProgressAt = Date.now();
+  lastConclusion = '';
   clearSession(cur.runId);
+  clearStoredLogs();
+  if (el) el.$log.innerHTML = '';
   saveRunningState(cur.runId, true);
   if (currentMeta) saveRunMeta(cur.runId, currentMeta);
   if (el) el.$summary.style.display = 'none';
@@ -268,25 +276,74 @@ function resumeMonitoring(): void {
 
 /** Best-effort read of workflow run conclusion from the page DOM. */
 function readRunConclusion(): string {
-  // Primary: status SVG inside the page header leading visual
-  const svg = document.querySelector<SVGElement>(
-    '.actions-workflow-runs-status svg[aria-label]'
-  );
-  const label = (svg?.getAttribute('aria-label') || '').toLowerCase();
-  if (label) {
-    if (/success/.test(label)) return 'success';
-    if (/failure|failed/.test(label)) return 'failure';
-    if (/cancel/.test(label)) return 'cancelled';
-    if (/timed.?out/.test(label)) return 'timed_out';
-    if (/skipped/.test(label)) return 'skipped';
-    if (/action.?required/.test(label)) return 'action_required';
-    if (/in progress|queued|waiting|pending|requested/.test(label)) return 'in_progress';
+  // Strategy 1: explicit selectors known to point at the run-level status icon.
+  const explicitSelectors = [
+    '.actions-workflow-runs-status svg[aria-label]',
+    '[data-testid="workflow-run-status"] svg[aria-label]',
+    '[data-testid="status-icon"]',
+    '[data-testid="status-icon"] svg[aria-label]',
+    'div.PageHeader svg.octicon[aria-label]',
+    'header svg.octicon[aria-label][class*="color-fg-"]',
+  ];
+  for (const sel of explicitSelectors) {
+    const node = document.querySelector<Element>(sel);
+    if (node) {
+      const c = mapConclusionEl(node);
+      if (c) return c;
+    }
   }
-  // Fallback: SVG class color hints
-  const cls = svg?.getAttribute('class') || '';
+
+  // Strategy 2: top-most colored octicon in the page header area (≤ 400px from top).
+  // Filters out per-job status icons which sit further down the page.
+  const candidates = Array.from(document.querySelectorAll<SVGElement>(
+    'svg.octicon[aria-label][class*="color-fg-"]'
+  ));
+  candidates.sort(
+    (a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top
+  );
+  for (const node of candidates) {
+    const top = node.getBoundingClientRect().top;
+    if (top < 0) continue;
+    if (top > 400) break;
+    const c = mapConclusionEl(node);
+    if (c) return c;
+  }
+
+  // Strategy 3: text-based "Status" pill (legacy / fallback layouts).
+  const statePill = document.querySelector<HTMLElement>(
+    'span[class*="State--"], [class*="StatusBadge"], [class*="status-badge"]'
+  );
+  if (statePill) {
+    const c = mapConclusionFromText(statePill.textContent || '');
+    if (c) return c;
+  }
+
+  return '';
+}
+
+function mapConclusionEl(el: Element): string {
+  const label = (el.getAttribute('aria-label') || '').toLowerCase();
+  const cls = el.getAttribute('class') || '';
+  if (label) {
+    const c = mapConclusionFromText(label);
+    if (c) return c;
+  }
   if (/color-fg-success/.test(cls)) return 'success';
   if (/color-fg-danger/.test(cls)) return 'failure';
+  if (/color-fg-attention/.test(cls)) return 'action_required';
   if (/color-fg-muted/.test(cls)) return 'cancelled';
+  return '';
+}
+
+function mapConclusionFromText(text: string): string {
+  const t = text.toLowerCase();
+  if (/success/.test(t)) return 'success';
+  if (/failure|failed/.test(t)) return 'failure';
+  if (/cancel/.test(t)) return 'cancelled';
+  if (/timed.?out/.test(t)) return 'timed_out';
+  if (/skipped/.test(t)) return 'skipped';
+  if (/action.?required/.test(t)) return 'action_required';
+  if (/in.?progress|queued|waiting|pending|requested/.test(t)) return 'in_progress';
   return '';
 }
 

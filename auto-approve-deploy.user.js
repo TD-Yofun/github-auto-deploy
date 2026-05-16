@@ -115,6 +115,14 @@
     }
     return data;
   }
+  function clearStoredLogs() {
+    _logBuffer = [];
+    if (_logFlushTimer) {
+      clearTimeout(_logFlushTimer);
+      _logFlushTimer = null;
+    }
+    if (_logStoreKey) GM_setValue(_logStoreKey, []);
+  }
   function downloadLog(runId) {
     const lines = getStoredLogs();
     if (lines.length === 0) {
@@ -1127,6 +1135,7 @@
   let skipCooldownUntil = 0;
   let versionBlocked = false;
   let disconnectSkipObserver = null;
+  let lastConclusion = "";
   window.addEventListener("error", (e) => {
     var _a;
     const msg = ((_a = e.error) == null ? void 0 : _a.stack) || e.message || String(e);
@@ -1222,6 +1231,10 @@
     state.pollCycle++;
     saveRunningState(state.startRunId, true);
     const conclusion = readRunConclusion();
+    if (conclusion && conclusion !== lastConclusion) {
+      log(`🔍 Run status detected: ${conclusion}`);
+      lastConclusion = conclusion;
+    }
     if (isTerminalConclusion(conclusion)) {
       log(`🏁 Workflow ${conclusion} — stopping and generating report`, "ok");
       stop(false);
@@ -1270,7 +1283,10 @@
     state.pollCycle = 0;
     state.monitorStartedAt = Date.now();
     state.lastProgressAt = Date.now();
+    lastConclusion = "";
     clearSession(cur.runId);
+    clearStoredLogs();
+    if (el) el.$log.innerHTML = "";
     saveRunningState(cur.runId, true);
     if (currentMeta) saveRunMeta(cur.runId, currentMeta);
     if (el) el.$summary.style.display = "none";
@@ -1327,23 +1343,65 @@
     poll();
   }
   function readRunConclusion() {
-    const svg = document.querySelector(
-      ".actions-workflow-runs-status svg[aria-label]"
-    );
-    const label = ((svg == null ? void 0 : svg.getAttribute("aria-label")) || "").toLowerCase();
-    if (label) {
-      if (/success/.test(label)) return "success";
-      if (/failure|failed/.test(label)) return "failure";
-      if (/cancel/.test(label)) return "cancelled";
-      if (/timed.?out/.test(label)) return "timed_out";
-      if (/skipped/.test(label)) return "skipped";
-      if (/action.?required/.test(label)) return "action_required";
-      if (/in progress|queued|waiting|pending|requested/.test(label)) return "in_progress";
+    const explicitSelectors = [
+      ".actions-workflow-runs-status svg[aria-label]",
+      '[data-testid="workflow-run-status"] svg[aria-label]',
+      '[data-testid="status-icon"]',
+      '[data-testid="status-icon"] svg[aria-label]',
+      "div.PageHeader svg.octicon[aria-label]",
+      'header svg.octicon[aria-label][class*="color-fg-"]'
+    ];
+    for (const sel of explicitSelectors) {
+      const node = document.querySelector(sel);
+      if (node) {
+        const c = mapConclusionEl(node);
+        if (c) return c;
+      }
     }
-    const cls = (svg == null ? void 0 : svg.getAttribute("class")) || "";
+    const candidates = Array.from(document.querySelectorAll(
+      'svg.octicon[aria-label][class*="color-fg-"]'
+    ));
+    candidates.sort(
+      (a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top
+    );
+    for (const node of candidates) {
+      const top = node.getBoundingClientRect().top;
+      if (top < 0) continue;
+      if (top > 400) break;
+      const c = mapConclusionEl(node);
+      if (c) return c;
+    }
+    const statePill = document.querySelector(
+      'span[class*="State--"], [class*="StatusBadge"], [class*="status-badge"]'
+    );
+    if (statePill) {
+      const c = mapConclusionFromText(statePill.textContent || "");
+      if (c) return c;
+    }
+    return "";
+  }
+  function mapConclusionEl(el2) {
+    const label = (el2.getAttribute("aria-label") || "").toLowerCase();
+    const cls = el2.getAttribute("class") || "";
+    if (label) {
+      const c = mapConclusionFromText(label);
+      if (c) return c;
+    }
     if (/color-fg-success/.test(cls)) return "success";
     if (/color-fg-danger/.test(cls)) return "failure";
+    if (/color-fg-attention/.test(cls)) return "action_required";
     if (/color-fg-muted/.test(cls)) return "cancelled";
+    return "";
+  }
+  function mapConclusionFromText(text) {
+    const t = text.toLowerCase();
+    if (/success/.test(t)) return "success";
+    if (/failure|failed/.test(t)) return "failure";
+    if (/cancel/.test(t)) return "cancelled";
+    if (/timed.?out/.test(t)) return "timed_out";
+    if (/skipped/.test(t)) return "skipped";
+    if (/action.?required/.test(t)) return "action_required";
+    if (/in.?progress|queued|waiting|pending|requested/.test(t)) return "in_progress";
     return "";
   }
   function isTerminalConclusion(c) {
