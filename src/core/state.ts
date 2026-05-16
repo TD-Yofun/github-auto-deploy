@@ -10,6 +10,8 @@ export interface SessionEvent {
 export interface State {
   running: boolean;
   pollTimer: ReturnType<typeof setTimeout> | null;
+  /** runId captured when start() was called — guards against URL drift */
+  startRunId: string | null;
   sessionApproved: number;
   totalApproved: number;
   lastSkipKey: string;
@@ -25,6 +27,7 @@ export function createState(): State {
   return {
     running: false,
     pollTimer: null,
+    startRunId: null,
     sessionApproved: 0,
     totalApproved: 0,
     lastSkipKey: '',

@@ -1,5 +1,5 @@
 /**
- * URL parsing — extract owner/repo/run_id from GitHub Actions page URL
+ * URL & page detection — extract owner/repo/run_id and detect the target page
  */
 export interface RunParams {
   owner: string;
@@ -14,4 +14,25 @@ export function parseUrl(): RunParams | null {
   if (!urlMatch) return null;
   const [, owner, repo, runId] = urlMatch;
   return { owner, repo, runId };
+}
+
+const DEPLOY_PRD_RE = /^\s*Deploy\s*\(\s*PRD\s*\)\s*$/i;
+
+/** Detect whether the current page is a Deploy (PRD) workflow run page. */
+export function isDeployPRDPage(): boolean {
+  const labels = document.querySelectorAll<HTMLElement>(
+    '.PageHeader-parentLink-label'
+  );
+  for (const lbl of labels) {
+    if (DEPLOY_PRD_RE.test(lbl.textContent || '')) return true;
+  }
+  return false;
+}
+
+/** Get the workflow name from the page header, if available. */
+export function getWorkflowName(): string {
+  const lbl = document.querySelector<HTMLElement>(
+    '.PageHeader-parentLink-label'
+  );
+  return lbl ? (lbl.textContent || '').trim() : '';
 }

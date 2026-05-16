@@ -3,12 +3,12 @@
 // @namespace    https://github.com/auto-deploy-gates
 // @version      1.0.1
 // @author       auto-deploy
-// @description  Automatically approve GitHub Actions deployment gates & skip wait timers
+// @description  Automatically click "Start all waiting jobs" on Deploy (PRD) workflow runs
 // @homepageURL  https://github.com/TD-Yofun/talkdesk-auto-deploy
 // @supportURL   https://github.com/TD-Yofun/talkdesk-auto-deploy/issues
 // @downloadURL  https://github.com/TD-Yofun/talkdesk-auto-deploy/releases/latest/download/auto-approve-deploy.min.user.js
 // @updateURL    https://github.com/TD-Yofun/talkdesk-auto-deploy/releases/latest/download/auto-approve-deploy.min.user.js
-// @match        https://github.com/*/actions/runs/*
+// @match        https://github.com/*
 // @connect      api.github.com
 // @grant        GM_addStyle
 // @grant        GM_getValue
@@ -30,32 +30,42 @@
     const [, owner, repo, runId] = urlMatch;
     return { owner, repo, runId };
   }
+  const DEPLOY_PRD_RE = /^\s*Deploy\s*\(\s*PRD\s*\)\s*$/i;
+  function isDeployPRDPage() {
+    const labels = document.querySelectorAll(
+      ".PageHeader-parentLink-label"
+    );
+    for (const lbl of labels) {
+      if (DEPLOY_PRD_RE.test(lbl.textContent || "")) return true;
+    }
+    return false;
+  }
+  function getWorkflowName() {
+    const lbl = document.querySelector(
+      ".PageHeader-parentLink-label"
+    );
+    return lbl ? (lbl.textContent || "").trim() : "";
+  }
   function loadConfig() {
     return {
-      token: GM_getValue("gh_token", ""),
       interval: GM_getValue("interval", 15),
-      autoApprove: GM_getValue("auto_approve", true),
-      autoSkip: GM_getValue("auto_skip", true),
       saveLog: GM_getValue("save_log", false),
       panelVisible: GM_getValue("panel_visible", true)
     };
   }
   function saveConfigField(key, value) {
     const keyMap = {
-      token: "gh_token",
       interval: "interval",
-      autoApprove: "auto_approve",
-      autoSkip: "auto_skip",
       saveLog: "save_log",
       panelVisible: "panel_visible"
     };
     GM_setValue(keyMap[key], value);
   }
-  const GRACE_PERIOD = 90;
   function createState() {
     return {
       running: false,
       pollTimer: null,
+      startRunId: null,
       sessionApproved: 0,
       totalApproved: 0,
       lastSkipKey: "",
@@ -127,88 +137,35 @@
     const savedTs = GM_getValue(stateKey, 0);
     return savedTs > 0 && Date.now() - savedTs < 30 * 60 * 1e3;
   }
-  function saveSession(runId, state) {
+  function saveSession(runId, state2) {
     const sessionKey = `aad_session_${runId}`;
     GM_setValue(sessionKey, {
-      approved: state.sessionApproved,
-      skipped: state.sessionSkipped,
-      events: state.sessionEvents,
-      startedAt: state.monitorStartedAt,
-      pollCycle: state.pollCycle,
-      lastSkipKey: state.lastSkipKey
+      approved: state2.sessionApproved,
+      skipped: state2.sessionSkipped,
+      events: state2.sessionEvents,
+      startedAt: state2.monitorStartedAt,
+      pollCycle: state2.pollCycle,
+      lastSkipKey: state2.lastSkipKey
     });
   }
-  function loadSession(runId, state) {
+  function loadSession(runId, state2) {
     const sessionKey = `aad_session_${runId}`;
     const s = GM_getValue(sessionKey, null);
     if (!s) return false;
-    state.sessionApproved = s.approved || 0;
-    state.sessionSkipped = s.skipped || 0;
-    state.sessionEvents = s.events || [];
-    state.monitorStartedAt = s.startedAt || Date.now();
-    state.pollCycle = s.pollCycle || 0;
-    state.lastSkipKey = s.lastSkipKey || "";
+    state2.sessionApproved = s.approved || 0;
+    state2.sessionSkipped = s.skipped || 0;
+    state2.sessionEvents = s.events || [];
+    state2.monitorStartedAt = s.startedAt || Date.now();
+    state2.pollCycle = s.pollCycle || 0;
+    state2.lastSkipKey = s.lastSkipKey || "";
     return true;
   }
   function clearSession(runId) {
     const sessionKey = `aad_session_${runId}`;
     GM_setValue(sessionKey, null);
   }
-  const API = "https://api.github.com";
-  function api(method, path, token, body) {
-    return new Promise((resolve, reject) => {
-      if (!token) return reject(new Error("No GitHub token configured"));
-      GM_xmlhttpRequest({
-        method,
-        url: `${API}${path}`,
-        headers: {
-          Authorization: `token ${token}`,
-          Accept: "application/vnd.github+json",
-          "Content-Type": "application/json"
-        },
-        data: body ? JSON.stringify(body) : void 0,
-        onload(r) {
-          if (r.status >= 200 && r.status < 300) {
-            try {
-              resolve(JSON.parse(r.responseText));
-            } catch {
-              resolve(r.responseText);
-            }
-          } else {
-            reject(new Error(`HTTP ${r.status}`));
-          }
-        },
-        onerror() {
-          reject(new Error("Network error"));
-        }
-      });
-    });
-  }
-  function fetchRunInfo(owner, repo, runId, token) {
-    return api("GET", `/repos/${owner}/${repo}/actions/runs/${runId}`, token);
-  }
-  function fetchPending(owner, repo, runId, token) {
-    return api("GET", `/repos/${owner}/${repo}/actions/runs/${runId}/pending_deployments`, token);
-  }
-  function approveDeployments(owner, repo, runId, token, envIds) {
-    return api("POST", `/repos/${owner}/${repo}/actions/runs/${runId}/pending_deployments`, token, {
-      environment_ids: envIds,
-      state: "approved",
-      comment: "Auto-approved by Auto-Approve Deploy Gates"
-    });
-  }
-  function skipWaitTimersViaApi(owner, repo, runId, token, envIds) {
-    return api("POST", `/repos/${owner}/${repo}/actions/runs/${runId}/pending_deployments`, token, {
-      environment_ids: envIds,
-      state: "approved",
-      comment: "Wait timer skipped by Auto-Approve Deploy Gates"
-    });
-  }
-  function fetchJobs(owner, repo, runId, token) {
-    return api("GET", `/repos/${owner}/${repo}/actions/runs/${runId}/jobs?per_page=100`, token);
-  }
   function observeSkipButton(onDetected) {
-    const check = (el) => /start all waiting/i.test(el.textContent || "");
+    const check = (el2) => /start all waiting/i.test(el2.textContent || "");
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
@@ -448,16 +405,6 @@
     const d = document.createElement("div");
     d.textContent = s;
     return d.innerHTML;
-  }
-  function formatDuration(ms) {
-    const secs = Math.floor(ms / 1e3);
-    if (secs < 60) return `${secs}s`;
-    const mins = Math.floor(secs / 60);
-    const remSecs = secs % 60;
-    if (mins < 60) return `${mins}m ${remSecs}s`;
-    const hours = Math.floor(mins / 60);
-    const remMins = mins % 60;
-    return `${hours}h ${remMins}m`;
   }
   function injectStyles() {
     GM_addStyle(`
@@ -707,7 +654,7 @@
     .aad-log-err   { color: #f85149; }
   `);
   }
-  function buildUI(runId, config) {
+  function buildUI(runId, config2) {
     const panel = document.createElement("div");
     panel.id = "aad-panel";
     panel.innerHTML = `
@@ -722,13 +669,10 @@
       <div id="aad-controls">
         <button id="aad-toggle-btn" class="start">▶ Start</button>
         <div id="aad-interval-wrap">
-          ⏱ <input id="aad-interval-input" type="number" min="5" max="300" value="${config.interval}">s
+          ⏱ <input id="aad-interval-input" type="number" min="5" max="300" value="${config2.interval}">s
         </div>
-        <label><input type="checkbox" id="aad-chk-approve" ${config.autoApprove ? "checked" : ""}> Approve</label>
-        <label><input type="checkbox" id="aad-chk-skip"    ${config.autoSkip ? "checked" : ""}> Skip timers</label>
-        <label><input type="checkbox" id="aad-chk-savelog" ${config.saveLog ? "checked" : ""}> 💾 Log</label>
+        <label><input type="checkbox" id="aad-chk-savelog" ${config2.saveLog ? "checked" : ""}> 💾 Log</label>
         <button id="aad-dl-log-btn" title="Download log file">📥</button>
-        <button id="aad-token-btn">🔑 Token</button>
       </div>
       <div id="aad-status-bar">
         <span id="aad-status-text">Idle</span>
@@ -746,14 +690,12 @@
     tab.textContent = "◀ AAD";
     tab.title = "Toggle Auto-Approve Deploy panel";
     document.body.appendChild(tab);
-    const el = {
+    const el2 = {
       panel,
       tab,
       $info: document.getElementById("aad-info"),
       $toggleBtn: document.getElementById("aad-toggle-btn"),
       $intervalIn: document.getElementById("aad-interval-input"),
-      $chkApprove: document.getElementById("aad-chk-approve"),
-      $chkSkip: document.getElementById("aad-chk-skip"),
       $chkSaveLog: document.getElementById("aad-chk-savelog"),
       $dlLogBtn: document.getElementById("aad-dl-log-btn"),
       $logPath: document.getElementById("aad-log-path"),
@@ -761,11 +703,10 @@
       $sessionCnt: document.getElementById("aad-session-cnt"),
       $totalCnt: document.getElementById("aad-total-cnt"),
       $log: document.getElementById("aad-log"),
-      $summary: document.getElementById("aad-summary"),
-      $tokenBtn: document.getElementById("aad-token-btn")
+      $summary: document.getElementById("aad-summary")
     };
-    if (config.saveLog) el.$logPath.style.display = "block";
-    if (!config.panelVisible) {
+    if (config2.saveLog) el2.$logPath.style.display = "block";
+    if (!config2.panelVisible) {
       panel.classList.add("collapsed");
       tab.classList.remove("shifted");
       tab.textContent = "◀ AAD";
@@ -774,40 +715,39 @@
       const isCollapsed = panel.classList.toggle("collapsed");
       tab.classList.toggle("shifted", !isCollapsed);
       tab.textContent = isCollapsed ? "◀ AAD" : "▶";
-      config.panelVisible = !isCollapsed;
-      saveConfigField("panelVisible", config.panelVisible);
+      config2.panelVisible = !isCollapsed;
+      saveConfigField("panelVisible", config2.panelVisible);
     }
     tab.addEventListener("click", togglePanel);
     document.getElementById("aad-collapse-btn").addEventListener("click", togglePanel);
-    return el;
+    return el2;
   }
-  function renderRunInfo(el, run, owner, repo) {
-    const badgeClass = run.status === "completed" ? run.conclusion === "success" ? "aad-badge-completed" : "aad-badge-failure" : run.status === "in_progress" ? "aad-badge-in_progress" : "aad-badge-queued";
-    el.$info.innerHTML = `
-    <strong>${esc(owner)}/${esc(repo)}</strong><br>
-    <span class="aad-run-name">${esc(run.name)}</span> · ${esc(run.head_branch)}<br>
-    Status: <span class="aad-status-badge ${badgeClass}">${esc(run.status)}${run.conclusion ? " · " + esc(run.conclusion) : ""}</span>
+  function renderRunInfo(el2, info) {
+    el2.$info.innerHTML = `
+    <strong>${esc(info.owner)}/${esc(info.repo)}</strong><br>
+    <span class="aad-run-name">${esc(info.workflow || "Workflow")}</span>${info.branch ? " · " + esc(info.branch) : ""}<br>
+    Run: <a href="/${esc(info.owner)}/${esc(info.repo)}/actions/runs/${esc(info.runId)}" style="color:#58a6ff">#${esc(info.runId)}</a>
   `;
   }
-  function renderToggle(el, running) {
+  function renderToggle(el2, running) {
     if (running) {
-      el.$toggleBtn.textContent = "⏹ Stop";
-      el.$toggleBtn.className = "stop";
-      setControlsEnabled(el, false);
+      el2.$toggleBtn.textContent = "⏹ Stop";
+      el2.$toggleBtn.className = "stop";
+      setControlsEnabled(el2, false);
     } else {
-      el.$toggleBtn.textContent = "▶ Start";
-      el.$toggleBtn.className = "start";
-      setControlsEnabled(el, true);
+      el2.$toggleBtn.textContent = "▶ Start";
+      el2.$toggleBtn.className = "start";
+      setControlsEnabled(el2, true);
     }
   }
-  function renderCounters(el, state) {
-    el.$sessionCnt.textContent = String(state.sessionApproved);
-    el.$totalCnt.textContent = String(state.totalApproved);
+  function renderCounters(el2, state2) {
+    el2.$sessionCnt.textContent = String(state2.sessionApproved);
+    el2.$totalCnt.textContent = String(state2.totalApproved);
   }
-  function setStatus(el, html) {
-    el.$statusText.innerHTML = html;
+  function setStatus(el2, html) {
+    el2.$statusText.innerHTML = html;
   }
-  function addLog(el, msg, level = "info") {
+  function addLog(el2, msg, level = "info") {
     const tag = "[AAD]";
     const consoleFn = level === "err" ? console.error : level === "warn" ? console.warn : level === "ok" ? console.info : console.log;
     consoleFn(`${tag} ${msg}`);
@@ -816,20 +756,20 @@
     const entry = document.createElement("div");
     entry.className = "aad-log-entry";
     entry.innerHTML = `<span class="aad-log-time">${timeStr}</span> <span class="aad-log-${level}">${esc(msg)}</span>`;
-    el.$log.appendChild(entry);
-    el.$log.scrollTop = el.$log.scrollHeight;
-    while (el.$log.children.length > 200) {
-      el.$log.removeChild(el.$log.firstChild);
+    el2.$log.appendChild(entry);
+    el2.$log.scrollTop = el2.$log.scrollHeight;
+    while (el2.$log.children.length > 200) {
+      el2.$log.removeChild(el2.$log.firstChild);
     }
   }
-  function restoreLogsToPanel(el) {
+  function restoreLogsToPanel(el2) {
     const lines = getStoredLogs();
     if (lines.length === 0) return;
     const recent = lines.slice(-50);
     const sep = document.createElement("div");
     sep.className = "aad-log-entry";
     sep.innerHTML = `<span class="aad-log-time">───</span> <span class="aad-log-info">── 以下为刷新前日志 (最近 ${recent.length}/${lines.length} 条) ──</span>`;
-    el.$log.appendChild(sep);
+    el2.$log.appendChild(sep);
     recent.forEach((line) => {
       const m = line.match(/^\[([^\]]+)\]\s*\[([^\]]+)\]\s*(.*)$/);
       const entry = document.createElement("div");
@@ -839,405 +779,280 @@
       } else {
         entry.innerHTML = `<span class="aad-log-info">${esc(line)}</span>`;
       }
-      el.$log.appendChild(entry);
+      el2.$log.appendChild(entry);
     });
     const sep2 = document.createElement("div");
     sep2.className = "aad-log-entry";
     sep2.innerHTML = `<span class="aad-log-time">───</span> <span class="aad-log-info">── 当前会话开始 ──</span>`;
-    el.$log.appendChild(sep2);
-    el.$log.scrollTop = el.$log.scrollHeight;
+    el2.$log.appendChild(sep2);
+    el2.$log.scrollTop = el2.$log.scrollHeight;
   }
-  function generateSummary(el, state, config, conclusion) {
-    const duration = Date.now() - state.monitorStartedAt;
-    const timelineHtml = state.sessionEvents.map((ev) => {
-      const t = new Date(ev.ts).toLocaleTimeString("en-US", { hour12: false });
-      const icon = ev.type === "approve" ? "✅" : ev.type === "skip" ? "⏭" : ev.type === "error" ? "❌" : ev.type === "start" ? "🚀" : ev.type === "resume" ? "🔄" : ev.type === "complete" ? "🏁" : "📌";
-      return `<div class="aad-timeline-item"><span class="aad-log-time">${t}</span> ${icon} ${esc(ev.detail)}</div>`;
-    }).join("");
-    const ok = conclusion === "success";
-    const statusIcon = ok ? "✅" : "❌";
-    const statusClass = ok ? "aad-log-ok" : "aad-log-err";
-    el.$summary.innerHTML = `
-    <div class="aad-summary-header">📊 执行报告</div>
-    <div class="aad-summary-grid">
-      <div class="aad-summary-item">
-        <span class="aad-summary-label">结果</span>
-        <span class="${statusClass}">${statusIcon} ${esc(conclusion)}</span>
-      </div>
-      <div class="aad-summary-item">
-        <span class="aad-summary-label">总耗时</span>
-        <span>${formatDuration(duration)}</span>
-      </div>
-      <div class="aad-summary-item">
-        <span class="aad-summary-label">轮询次数</span>
-        <span>${state.pollCycle}</span>
-      </div>
-      <div class="aad-summary-item">
-        <span class="aad-summary-label">审批通过</span>
-        <span class="aad-log-ok">${state.sessionApproved}</span>
-      </div>
-      <div class="aad-summary-item">
-        <span class="aad-summary-label">跳过计时器</span>
-        <span>${state.sessionSkipped}</span>
-      </div>
-      <div class="aad-summary-item">
-        <span class="aad-summary-label">轮询间隔</span>
-        <span>${config.interval}s</span>
-      </div>
-    </div>
-    ${state.sessionEvents.length > 0 ? `
-      <div class="aad-summary-header" style="margin-top:8px">📋 执行时间线</div>
-      <div class="aad-timeline">${timelineHtml}</div>
-    ` : ""}
-  `;
-    el.$summary.style.display = "block";
-  }
-  function setControlsEnabled(el, enabled) {
-    const checkboxes = [el.$chkApprove, el.$chkSkip, el.$chkSaveLog];
+  function setControlsEnabled(el2, enabled) {
+    const checkboxes = [el2.$chkSaveLog];
     checkboxes.forEach((cb) => {
       cb.disabled = !enabled;
       const label = cb.closest("label");
       if (label) label.classList.toggle("aad-disabled", !enabled);
     });
-    el.$intervalIn.disabled = !enabled;
-    const wrap = el.$intervalIn.closest("#aad-interval-wrap");
+    el2.$intervalIn.disabled = !enabled;
+    const wrap = el2.$intervalIn.closest("#aad-interval-wrap");
     if (wrap) wrap.classList.toggle("aad-disabled", !enabled);
-    [el.$tokenBtn, el.$dlLogBtn].forEach((btn) => {
-      btn.disabled = !enabled;
-      btn.classList.toggle("aad-disabled", !enabled);
-    });
+    el2.$dlLogBtn.disabled = !enabled;
+    el2.$dlLogBtn.classList.toggle("aad-disabled", !enabled);
   }
-  const params = parseUrl();
-  if (params) {
-    let recordEvent = function(type, detail) {
-      state.sessionEvents.push({ ts: Date.now(), type, detail });
-      saveSession(runId, state);
-    }, startSkipObserver = function() {
-      stopSkipObserver();
-      disconnectSkipObserver = observeSkipButton(handleSkipDetected);
-    }, stopSkipObserver = function() {
-      if (disconnectSkipObserver) {
-        disconnectSkipObserver();
-        disconnectSkipObserver = null;
+  const config = loadConfig();
+  const state = createState();
+  injectStyles();
+  let el = null;
+  let currentRunId = null;
+  let skipInProgress = false;
+  let skipCooldownUntil = 0;
+  let versionBlocked = false;
+  let disconnectSkipObserver = null;
+  function log(msg, level) {
+    if (el) addLog(el, msg, level);
+    else console.log(`[AAD] ${msg}`);
+  }
+  function recordEvent(type, detail) {
+    if (!state.startRunId) return;
+    state.sessionEvents.push({ ts: Date.now(), type, detail });
+    saveSession(state.startRunId, state);
+  }
+  function runIdMatches() {
+    if (!state.startRunId) return false;
+    const cur = parseUrl();
+    return !!cur && cur.runId === state.startRunId;
+  }
+  function abortIfDrifted() {
+    if (!state.running) return false;
+    if (runIdMatches()) return true;
+    const cur = parseUrl();
+    const where = cur ? `${cur.owner}/${cur.repo}/runs/${cur.runId}` : location.pathname;
+    log(`⚠️ URL drift: started on run #${state.startRunId} but now at ${where}`, "warn");
+    log("⏹ Auto-stopped to avoid acting on the wrong action.", "err");
+    if (el) setStatus(el, `⚠️ Stopped: URL changed away from run #${state.startRunId}`);
+    stop();
+    return false;
+  }
+  async function handleSkipDetected() {
+    if (skipInProgress || !state.running) return;
+    if (Date.now() < skipCooldownUntil) return;
+    if (!abortIfDrifted()) return;
+    skipInProgress = true;
+    try {
+      log('[detect] "Start all waiting jobs" button found in DOM');
+      const cur = parseUrl();
+      if (!cur) return;
+      const ok = await trySkipWaitTimers(cur.owner, cur.repo, log, true);
+      if (!abortIfDrifted()) return;
+      if (ok) {
+        log("✅ Click executed successfully", "ok");
+        state.sessionApproved++;
+        state.sessionSkipped++;
+        state.totalApproved++;
+        recordEvent("approve", 'Clicked "Start all waiting jobs"');
+        if (el) renderCounters(el, state);
+        saveSession(state.startRunId, state);
+        skipCooldownUntil = Date.now() + 5e3;
+      } else {
+        log("⚠️ Click failed — will retry on next poll cycle", "warn");
+        skipCooldownUntil = Date.now() + 15e3;
       }
-    }, checkUrlMatch = function() {
-      const current = parseUrl();
-      if (!current || current.runId !== runId) {
-        const page = current ? `${current.owner}/${current.repo}/runs/${current.runId}` : location.pathname;
-        log(`⚠️ Page navigated away from run #${runId} → ${page}`, "warn");
-        log("⏹ Auto-stopped: monitoring only works on the original action page.", "err");
-        setStatus(el, `⚠️ Stopped: page no longer matches run #${runId}`);
-        stop();
-        return false;
-      }
-      return true;
-    }, softRefresh = function() {
-      log("Refreshing page...");
-      location.reload();
-    }, start = function() {
-      if (versionBlocked) {
-        log("⛔ Cannot start: outdated version. Please update first.", "err");
-        return;
-      }
-      if (!config.token) {
-        promptToken();
-        return;
-      }
-      state.running = true;
-      state.sessionApproved = 0;
-      state.sessionSkipped = 0;
-      state.sessionEvents = [];
-      state.lastSkipKey = "";
-      state.pollCycle = 0;
-      state.monitorStartedAt = Date.now();
-      clearSession(runId);
-      saveRunningState(runId, true);
-      el.$summary.style.display = "none";
-      recordEvent("start", `Started (interval=${config.interval}s, approve=${config.autoApprove}, skip=${config.autoSkip})`);
-      log(`🚀 Started monitoring (interval=${config.interval}s, approve=${config.autoApprove}, skip=${config.autoSkip}, log=${config.saveLog})`);
-      renderToggle(el, true);
-      startSkipObserver();
-      poll();
-    }, resume = function() {
-      if (versionBlocked) {
-        log("⛔ Cannot resume: outdated version. Please update first.", "err");
-        return;
-      }
-      if (!config.token) {
-        promptToken();
-        return;
-      }
-      state.running = true;
-      loadSession(runId, state);
-      saveRunningState(runId, true);
-      el.$summary.style.display = "none";
-      recordEvent("resume", `Resumed after page refresh`);
-      log(`🚀 Started monitoring (interval=${config.interval}s, approve=${config.autoApprove}, skip=${config.autoSkip}, log=${config.saveLog})`);
+    } catch (e) {
+      log(`⚠️ Click error: ${e.message}`, "warn");
+      skipCooldownUntil = Date.now() + 15e3;
+    } finally {
+      skipInProgress = false;
+    }
+  }
+  function startSkipObserver() {
+    stopSkipObserver();
+    disconnectSkipObserver = observeSkipButton(handleSkipDetected);
+  }
+  function stopSkipObserver() {
+    if (disconnectSkipObserver) {
+      disconnectSkipObserver();
+      disconnectSkipObserver = null;
+    }
+  }
+  async function poll() {
+    if (!state.running) return;
+    if (!abortIfDrifted()) return;
+    state.pollCycle++;
+    saveRunningState(state.startRunId, true);
+    const btnText = /start all waiting/i;
+    const found = [...document.querySelectorAll(
+      'button, [role="button"], summary'
+    )].some((b) => btnText.test(b.textContent || ""));
+    if (found && !skipInProgress && Date.now() >= skipCooldownUntil) {
+      log(`[poll #${state.pollCycle}] button present — triggering click`);
+      handleSkipDetected();
+    } else {
+      if (el) setStatus(el, `🔄 Monitoring (cycle ${state.pollCycle})...`);
+    }
+    if (state.running) {
+      state.pollTimer = setTimeout(poll, config.interval * 1e3);
+    }
+  }
+  function start() {
+    if (versionBlocked) {
+      log("⛔ Cannot start: outdated version. Please update first.", "err");
+      return;
+    }
+    const cur = parseUrl();
+    if (!cur) {
+      log("⚠️ Not on an action run page", "warn");
+      return;
+    }
+    state.running = true;
+    state.startRunId = cur.runId;
+    state.sessionApproved = 0;
+    state.sessionSkipped = 0;
+    state.sessionEvents = [];
+    state.lastSkipKey = "";
+    state.pollCycle = 0;
+    state.monitorStartedAt = Date.now();
+    clearSession(cur.runId);
+    saveRunningState(cur.runId, true);
+    if (el) el.$summary.style.display = "none";
+    recordEvent("start", `Started on run #${cur.runId} (interval=${config.interval}s)`);
+    log(`🚀 Started monitoring run #${cur.runId} (interval=${config.interval}s)`);
+    if (el) renderToggle(el, true);
+    startSkipObserver();
+    poll();
+  }
+  function resume() {
+    if (versionBlocked) {
+      log("⛔ Cannot resume: outdated version. Please update first.", "err");
+      return;
+    }
+    const cur = parseUrl();
+    if (!cur) return;
+    state.running = true;
+    state.startRunId = cur.runId;
+    loadSession(cur.runId, state);
+    saveRunningState(cur.runId, true);
+    if (el) el.$summary.style.display = "none";
+    recordEvent("resume", `Resumed after page refresh`);
+    log(`🚀 Resumed monitoring run #${cur.runId} (interval=${config.interval}s)`);
+    if (el) {
       renderToggle(el, true);
       renderCounters(el, state);
-      startSkipObserver();
-      poll();
-    }, stop = function() {
-      state.running = false;
-      saveRunningState(runId, false);
-      stopSkipObserver();
-      if (state.pollTimer) {
-        clearTimeout(state.pollTimer);
-        state.pollTimer = null;
-      }
-      log(`⏹ Stopped (cycles=${state.pollCycle}, session=${state.sessionApproved})`);
-      saveSession(runId, state);
-      renderToggle(el, false);
-    }, promptToken = function() {
-      const t = prompt("Enter your GitHub token (run `gh auth token` in terminal):", config.token);
-      if (t && t.trim()) {
-        config.token = t.trim();
-        saveConfigField("token", config.token);
-        log("🔑 Token saved");
-        start();
-      }
-    };
-    const { owner, repo, runId } = params;
-    const config = loadConfig();
-    const state = createState();
-    initLogStore(runId, config.saveLog);
-    injectStyles();
-    const el = buildUI(runId, config);
-    const log = (msg, level) => addLog(el, msg, level);
-    let skipInProgress = false;
-    let skipCooldownUntil = 0;
-    let disconnectSkipObserver = null;
-    let versionBlocked = false;
-    async function handleSkipDetected() {
-      if (skipInProgress || !state.running || !config.autoSkip) return;
-      if (Date.now() < skipCooldownUntil) return;
-      skipInProgress = true;
-      log('[skip-observer] Detected "Start all waiting jobs" button in DOM');
-      try {
-        const skipped = await trySkipWaitTimers(owner, repo, log, true);
-        if (skipped) {
-          log("✅ Skip attempted (observer) — refreshing...", "ok");
-          state.sessionSkipped++;
-          recordEvent("skip", "Skipped wait timers (observer/DOM)");
-          saveSession(runId, state);
-          softRefresh();
-        } else {
-          log("⚠️ DOM skip failed (observer). Trying API-based skip...", "warn");
-          try {
-            const pending = await fetchPending(owner, repo, runId, config.token);
-            const waitGates = pending.filter(
-              (d) => !d.current_user_can_approve && d.wait_timer && d.wait_timer > 0
-            );
-            if (waitGates.length > 0) {
-              const envIds = waitGates.map((d) => d.environment.id);
-              const envNames = waitGates.map((d) => d.environment.name).join(", ");
-              await skipWaitTimersViaApi(owner, repo, runId, config.token, envIds);
-              log(`✅ Skipped via API (observer): ${envNames}`, "ok");
-              state.sessionSkipped++;
-              recordEvent("skip", `Skipped wait timers (observer/API): ${envNames}`);
-              saveSession(runId, state);
-            }
-          } catch (e) {
-            log(`⚠️ API skip also failed (observer): ${e.message}`, "warn");
-          }
-          skipCooldownUntil = Date.now() + 3e4;
-        }
-      } finally {
-        skipInProgress = false;
-      }
     }
-    async function poll() {
-      if (!state.running) return;
-      if (!checkUrlMatch()) return;
-      state.pollCycle++;
-      saveRunningState(runId, true);
-      log(`[poll #${state.pollCycle}] polling...`);
-      try {
-        const run = await fetchRunInfo(owner, repo, runId, config.token);
-        renderRunInfo(el, run, owner, repo);
-        if (run.status === "completed") {
-          const elapsed = (Date.now() - state.monitorStartedAt) / 1e3;
-          if (state.sessionApproved === 0 && elapsed < GRACE_PERIOD) {
-            const remaining = Math.ceil(GRACE_PERIOD - elapsed);
-            log(`⏳ Run shows completed but grace period active (${remaining}s left) — re-run may not have propagated yet`, "warn");
-            setStatus(el, `⏳ Waiting for re-run to start... (${remaining}s)`);
-            if (state.running) {
-              state.pollTimer = setTimeout(poll, config.interval * 1e3);
-            }
-            return;
-          } else {
-            const ok = run.conclusion === "success";
-            recordEvent("complete", `Run ${ok ? "succeeded" : "failed"}: ${run.conclusion}`);
-            log(
-              ok ? `✅ Run completed! (session: ${state.sessionApproved}, total: ${state.totalApproved})` : `❌ Run finished: ${run.conclusion} (session: ${state.sessionApproved}, total: ${state.totalApproved})`,
-              ok ? "ok" : "err"
-            );
-            generateSummary(el, state, config, run.conclusion || "unknown");
-            stop();
-            return;
-          }
-        }
-        const pending = await fetchPending(owner, repo, runId, config.token);
-        const approvable = pending.filter((d) => d.current_user_can_approve);
-        log(`[poll] status=${run.status}, pending=${pending.length}, approvable=${approvable.length}`);
-        if (config.autoApprove && approvable.length > 0) {
-          const envIds = approvable.map((d) => d.environment.id);
-          const envNames = approvable.map((d) => d.environment.name).join(", ");
-          log(`Found ${approvable.length} approvable gate(s): ${envNames}`);
-          try {
-            await approveDeployments(owner, repo, runId, config.token, envIds);
-            log(`✅ Approved: ${envNames}`, "ok");
-            state.sessionApproved += approvable.length;
-            state.totalApproved += approvable.length;
-            recordEvent("approve", `Approved: ${envNames}`);
-            renderCounters(el, state);
-            if (state.running) {
-              state.pollTimer = setTimeout(poll, 5e3);
-            }
-            return;
-          } catch (e) {
-            log(`⚠️ Approve failed: ${e.message}`, "warn");
-          }
-        } else if (pending.length > 0) {
-          const waitGates = pending.filter(
-            (d) => !d.current_user_can_approve && d.wait_timer && d.wait_timer > 0
-          );
-          if (config.autoSkip && waitGates.length > 0 && !skipInProgress) {
-            const skipKey = waitGates.map((d) => d.environment.name).sort().join(",");
-            if (skipKey !== state.lastSkipKey) {
-              state.lastSkipKey = skipKey;
-              log(`Detected wait timer(s): ${skipKey}`);
-              log("Attempting to skip via page DOM...");
-              const skipped = await trySkipWaitTimers(owner, repo, log);
-              if (skipped) {
-                log("✅ Skip attempted — checking result...", "ok");
-                state.sessionSkipped++;
-                recordEvent("skip", `Skipped wait timers (DOM): ${skipKey}`);
-                saveSession(runId, state);
-                softRefresh();
-              } else {
-                log("⚠️ DOM skip failed. Trying API-based skip...", "warn");
-                const envIds = waitGates.map((d) => d.environment.id);
-                try {
-                  await skipWaitTimersViaApi(owner, repo, runId, config.token, envIds);
-                  log(`✅ Skipped via API: ${skipKey}`, "ok");
-                  state.sessionSkipped++;
-                  recordEvent("skip", `Skipped wait timers (API): ${skipKey}`);
-                  saveSession(runId, state);
-                  if (state.running) {
-                    state.pollTimer = setTimeout(poll, 5e3);
-                  }
-                  return;
-                } catch (e) {
-                  log(`⚠️ API skip also failed: ${e.message} — waiting for timer(s) to expire.`, "warn");
-                }
-              }
-            }
-          }
-          const timerText = pending.filter((d) => !d.current_user_can_approve).map((d) => {
-            if (d.wait_timer > 0 && d.wait_timer_started_at) {
-              const totalSecs = d.wait_timer * 60;
-              const started = new Date(d.wait_timer_started_at).getTime() / 1e3;
-              const remaining = Math.ceil(started + totalSecs - Date.now() / 1e3);
-              if (remaining > 0) {
-                const m = Math.floor(remaining / 60);
-                const s = remaining % 60;
-                return `${esc(d.environment.name)} ⏱ ${m}m${s}s`;
-              }
-              return `${esc(d.environment.name)} ⏱ expired`;
-            }
-            return `${esc(d.environment.name)} (waiting)`;
-          }).join(" · ");
-          setStatus(el, `⏳ ${pending.length} pending — ${timerText}`);
-        } else {
-          setStatus(el, `🔄 Monitoring... (${run.status})`);
-        }
-      } catch (e) {
-        log(`⚠️ Poll error: ${e.message}`, "warn");
-      }
-      if (state.running) {
-        state.pollTimer = setTimeout(poll, config.interval * 1e3);
-      }
+    startSkipObserver();
+    poll();
+  }
+  function stop() {
+    state.running = false;
+    if (state.startRunId) saveRunningState(state.startRunId, false);
+    stopSkipObserver();
+    if (state.pollTimer) {
+      clearTimeout(state.pollTimer);
+      state.pollTimer = null;
     }
-    el.$toggleBtn.addEventListener("click", () => {
+    log(`⏹ Stopped (cycles=${state.pollCycle}, clicks=${state.sessionApproved})`);
+    if (state.startRunId) saveSession(state.startRunId, state);
+    if (el) renderToggle(el, false);
+  }
+  function bindPanelEvents(panel, runId) {
+    panel.$toggleBtn.addEventListener("click", () => {
       state.running ? stop() : start();
     });
-    el.$intervalIn.addEventListener("change", () => {
-      config.interval = Math.max(5, parseInt(el.$intervalIn.value, 10) || 30);
-      el.$intervalIn.value = String(config.interval);
+    panel.$intervalIn.addEventListener("change", () => {
+      config.interval = Math.max(5, parseInt(panel.$intervalIn.value, 10) || 15);
+      panel.$intervalIn.value = String(config.interval);
       saveConfigField("interval", config.interval);
     });
-    el.$chkApprove.addEventListener("change", () => {
-      config.autoApprove = el.$chkApprove.checked;
-      saveConfigField("autoApprove", config.autoApprove);
-    });
-    el.$chkSkip.addEventListener("change", () => {
-      config.autoSkip = el.$chkSkip.checked;
-      saveConfigField("autoSkip", config.autoSkip);
-    });
-    el.$chkSaveLog.addEventListener("change", () => {
-      config.saveLog = el.$chkSaveLog.checked;
+    panel.$chkSaveLog.addEventListener("change", () => {
+      config.saveLog = panel.$chkSaveLog.checked;
       saveConfigField("saveLog", config.saveLog);
       setLogSaving(config.saveLog);
-      el.$logPath.style.display = config.saveLog ? "block" : "none";
-      if (config.saveLog) {
-        log(`💾 日志记录已开启 — 文件: aad-run-${runId}.log`, "ok");
-      } else {
-        log("💾 日志记录已关闭", "info");
-      }
+      panel.$logPath.style.display = config.saveLog ? "block" : "none";
+      log(config.saveLog ? `💾 日志记录已开启 — 文件: aad-run-${runId}.log` : "💾 日志记录已关闭", config.saveLog ? "ok" : "info");
     });
-    el.$dlLogBtn.addEventListener("click", () => downloadLog(runId));
-    el.$tokenBtn.addEventListener("click", promptToken);
-    GM_registerMenuCommand("🔑 Set GitHub Token", promptToken);
-    GM_registerMenuCommand("🚀 Start Monitoring", start);
-    GM_registerMenuCommand("⏹ Stop Monitoring", stop);
-    (async function init() {
-      const currentVersion = getCurrentVersion();
-      try {
-        const v = await checkLatestVersion(currentVersion);
-        if (v.outdated) {
-          versionBlocked = true;
-          el.$info.innerHTML = `<div style="color:#f85149;font-weight:600">⛔ 脚本版本过期，请更新后使用</div>
-          <div style="margin-top:4px;font-size:11px">当前: <code>${esc(v.current)}</code> · 最新: <code>${esc(v.latest)}</code></div>
-          <div style="margin-top:6px"><a href="${esc(v.releaseUrl)}" target="_blank" rel="noopener" style="color:#58a6ff">📥 点此下载最新版本</a></div>`;
-          log(`⛔ Outdated: ${v.current} → ${v.latest}. Update required.`, "err");
-          el.$toggleBtn.disabled = true;
-          el.$toggleBtn.textContent = "⛔ Outdated";
-          return;
-        }
-        log(`✅ Version check passed (${v.current})`, "ok");
-      } catch (e) {
-        log(`⚠️ Version check failed: ${e.message} — proceeding anyway`, "warn");
-      }
-      if (!config.token) {
-        el.$info.innerHTML = `<span style="color:#d29922">⚠️ No token configured — click <b>🔑 Token</b> to set one.</span>`;
-        log("No token configured. Click 🔑 Token to set your GitHub token.", "warn");
+    panel.$dlLogBtn.addEventListener("click", () => downloadLog(runId));
+  }
+  function buildPanelFor(params) {
+    initLogStore(params.runId, config.saveLog);
+    el = buildUI(params.runId, config);
+    bindPanelEvents(el, params.runId);
+    renderRunInfo(el, {
+      owner: params.owner,
+      repo: params.repo,
+      runId: params.runId,
+      workflow: getWorkflowName() || "Deploy (PRD)"
+    });
+    log(`Ready — ${params.owner}/${params.repo} run #${params.runId}`);
+    if (config.saveLog) restoreLogsToPanel(el);
+    currentRunId = params.runId;
+    runVersionCheck();
+    if (wasRunning(params.runId)) {
+      log("🔄 Resuming after page refresh...", "ok");
+      resume();
+    }
+  }
+  function teardownPanel() {
+    if (state.running) stop();
+    if (el) {
+      el.panel.remove();
+      el.tab.remove();
+      el = null;
+    }
+    currentRunId = null;
+  }
+  async function runVersionCheck() {
+    if (!el) return;
+    const currentVersion = getCurrentVersion();
+    try {
+      const v = await checkLatestVersion(currentVersion);
+      if (v.outdated) {
+        versionBlocked = true;
+        el.$info.innerHTML = `<div style="color:#f85149;font-weight:600">⛔ 脚本版本过期，请更新后使用</div>
+        <div style="margin-top:4px;font-size:11px">当前: <code>${esc(v.current)}</code> · 最新: <code>${esc(v.latest)}</code></div>
+        <div style="margin-top:6px"><a href="${esc(v.releaseUrl)}" target="_blank" rel="noopener" style="color:#58a6ff">📥 点此下载最新版本</a></div>`;
+        log(`⛔ Outdated: ${v.current} → ${v.latest}. Update required.`, "err");
+        el.$toggleBtn.disabled = true;
+        el.$toggleBtn.textContent = "⛔ Outdated";
         return;
       }
-      try {
-        const run = await fetchRunInfo(owner, repo, runId, config.token);
-        renderRunInfo(el, run, owner, repo);
-        state.totalApproved = 0;
-        try {
-          const jobsData = await fetchJobs(owner, repo, runId, config.token);
-          const gateJobs = jobsData.jobs.filter((j) => /gate/i.test(j.name));
-          state.totalApproved = gateJobs.filter((j) => j.conclusion === "success").length;
-          renderCounters(el, state);
-        } catch {
-        }
-        log(`Ready — ${owner}/${repo} run #${runId}`);
-        if (config.saveLog) {
-          restoreLogsToPanel(el);
-        }
-        if (wasRunning(runId)) {
-          log("🔄 Resuming after page refresh...", "ok");
-          resume();
-        }
-      } catch (e) {
-        el.$info.innerHTML = `<span style="color:#f85149">❌ Failed to load run info: ${esc(e.message)}</span>`;
-        log(`Failed to load run info: ${e.message}`, "err");
-      }
-    })();
+      log(`✅ Version check passed (${v.current})`, "ok");
+    } catch (e) {
+      log(`⚠️ Version check failed: ${e.message} — proceeding anyway`, "warn");
+    }
   }
+  function checkPage() {
+    const params = parseUrl();
+    const onTarget = !!params && isDeployPRDPage();
+    if (!onTarget) {
+      if (el) teardownPanel();
+      return;
+    }
+    if (!el || currentRunId !== params.runId) {
+      if (el) teardownPanel();
+      buildPanelFor(params);
+    }
+  }
+  checkPage();
+  let initialTries = 0;
+  const initialPoll = setInterval(() => {
+    initialTries++;
+    checkPage();
+    if (el || initialTries >= 20) clearInterval(initialPoll);
+  }, 500);
+  document.addEventListener("turbo:load", () => checkPage());
+  document.addEventListener("turbo:render", () => checkPage());
+  let lastHref = location.href;
+  setInterval(() => {
+    if (location.href !== lastHref) {
+      lastHref = location.href;
+      setTimeout(checkPage, 400);
+    }
+  }, 1e3);
+  GM_registerMenuCommand("🚀 Start Monitoring", () => {
+    if (el) start();
+  });
+  GM_registerMenuCommand("⏹ Stop Monitoring", () => {
+    if (el) stop();
+  });
 
 })();

@@ -12,8 +12,6 @@ export interface UIElements {
   $info: HTMLElement;
   $toggleBtn: HTMLButtonElement;
   $intervalIn: HTMLInputElement;
-  $chkApprove: HTMLInputElement;
-  $chkSkip: HTMLInputElement;
   $chkSaveLog: HTMLInputElement;
   $dlLogBtn: HTMLButtonElement;
   $logPath: HTMLElement;
@@ -22,7 +20,6 @@ export interface UIElements {
   $totalCnt: HTMLElement;
   $log: HTMLElement;
   $summary: HTMLElement;
-  $tokenBtn: HTMLButtonElement;
 }
 
 export function buildUI(runId: string, config: Config): UIElements {
@@ -42,11 +39,8 @@ export function buildUI(runId: string, config: Config): UIElements {
         <div id="aad-interval-wrap">
           ⏱ <input id="aad-interval-input" type="number" min="5" max="300" value="${config.interval}">s
         </div>
-        <label><input type="checkbox" id="aad-chk-approve" ${config.autoApprove ? 'checked' : ''}> Approve</label>
-        <label><input type="checkbox" id="aad-chk-skip"    ${config.autoSkip ? 'checked' : ''}> Skip timers</label>
         <label><input type="checkbox" id="aad-chk-savelog" ${config.saveLog ? 'checked' : ''}> 💾 Log</label>
         <button id="aad-dl-log-btn" title="Download log file">📥</button>
-        <button id="aad-token-btn">🔑 Token</button>
       </div>
       <div id="aad-status-bar">
         <span id="aad-status-text">Idle</span>
@@ -72,8 +66,6 @@ export function buildUI(runId: string, config: Config): UIElements {
     $info: document.getElementById('aad-info')!,
     $toggleBtn: document.getElementById('aad-toggle-btn') as HTMLButtonElement,
     $intervalIn: document.getElementById('aad-interval-input') as HTMLInputElement,
-    $chkApprove: document.getElementById('aad-chk-approve') as HTMLInputElement,
-    $chkSkip: document.getElementById('aad-chk-skip') as HTMLInputElement,
     $chkSaveLog: document.getElementById('aad-chk-savelog') as HTMLInputElement,
     $dlLogBtn: document.getElementById('aad-dl-log-btn') as HTMLButtonElement,
     $logPath: document.getElementById('aad-log-path')!,
@@ -82,7 +74,6 @@ export function buildUI(runId: string, config: Config): UIElements {
     $totalCnt: document.getElementById('aad-total-cnt')!,
     $log: document.getElementById('aad-log')!,
     $summary: document.getElementById('aad-summary')!,
-    $tokenBtn: document.getElementById('aad-token-btn') as HTMLButtonElement,
   };
 
   if (config.saveLog) el.$logPath.style.display = 'block';
@@ -108,20 +99,11 @@ export function buildUI(runId: string, config: Config): UIElements {
   return el;
 }
 
-export function renderRunInfo(el: UIElements, run: { name: string; status: string; conclusion: string | null; head_branch: string }, owner: string, repo: string): void {
-  const badgeClass =
-    run.status === 'completed'
-      ? run.conclusion === 'success'
-        ? 'aad-badge-completed'
-        : 'aad-badge-failure'
-      : run.status === 'in_progress'
-        ? 'aad-badge-in_progress'
-        : 'aad-badge-queued';
-
+export function renderRunInfo(el: UIElements, info: { owner: string; repo: string; runId: string; workflow: string; branch?: string }): void {
   el.$info.innerHTML = `
-    <strong>${esc(owner)}/${esc(repo)}</strong><br>
-    <span class="aad-run-name">${esc(run.name)}</span> · ${esc(run.head_branch)}<br>
-    Status: <span class="aad-status-badge ${badgeClass}">${esc(run.status)}${run.conclusion ? ' · ' + esc(run.conclusion) : ''}</span>
+    <strong>${esc(info.owner)}/${esc(info.repo)}</strong><br>
+    <span class="aad-run-name">${esc(info.workflow || 'Workflow')}</span>${info.branch ? ' · ' + esc(info.branch) : ''}<br>
+    Run: <a href="/${esc(info.owner)}/${esc(info.repo)}/actions/runs/${esc(info.runId)}" style="color:#58a6ff">#${esc(info.runId)}</a>
   `;
 }
 
@@ -253,7 +235,7 @@ export function generateSummary(el: UIElements, state: State, config: Config, co
 }
 
 function setControlsEnabled(el: UIElements, enabled: boolean): void {
-  const checkboxes = [el.$chkApprove, el.$chkSkip, el.$chkSaveLog];
+  const checkboxes = [el.$chkSaveLog];
   checkboxes.forEach((cb) => {
     cb.disabled = !enabled;
     const label = cb.closest('label');
@@ -262,8 +244,6 @@ function setControlsEnabled(el: UIElements, enabled: boolean): void {
   el.$intervalIn.disabled = !enabled;
   const wrap = el.$intervalIn.closest('#aad-interval-wrap');
   if (wrap) wrap.classList.toggle('aad-disabled', !enabled);
-  [el.$tokenBtn, el.$dlLogBtn].forEach((btn) => {
-    btn.disabled = !enabled;
-    btn.classList.toggle('aad-disabled', !enabled);
-  });
+  el.$dlLogBtn.disabled = !enabled;
+  el.$dlLogBtn.classList.toggle('aad-disabled', !enabled);
 }
