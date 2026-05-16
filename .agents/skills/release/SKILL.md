@@ -67,13 +67,17 @@ Note: `refactor!:` indicates a breaking change but no new feature; whether to re
 
 ## Phase 3 — Dry Run (REQUIRED, then confirm)
 
-Always run a dry-run first to preview what release-it will do:
+Always run a dry-run first to preview what release-it will do. **Always pass `--ci`** so release-it does not prompt interactively for each step (dry-run does not modify anything, so auto-confirming is safe):
 
 ```
-npm run release:dry -- <bump>
+npm run release:dry -- <bump> --ci
 ```
 
 Where `<bump>` is the value the user chose in Phase 2.
+
+**Do NOT pipe the command through `tee` / `tail` / `head`** — release-it's output is line-buffered and pipes hide the interactive prompts (and even with `--ci`, buffering delays output). Either run it unpiped, or redirect to a file with `> /tmp/dry.log 2>&1` and read the file after.
+
+If you forget `--ci`, the command will appear to hang silently because release-it is waiting on a `(y/N)` prompt that the pipe is buffering.
 
 Show the full output to the user, then **stop and explicitly ask: "Proceed with the real release?"** Wait for `yes` (or equivalent). Do not proceed on silence or ambiguity.
 
