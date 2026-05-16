@@ -148,8 +148,11 @@ export function addLog(el: UIElements, msg: string, level = 'info'): void {
   const entry = document.createElement('div');
   entry.className = 'aad-log-entry';
   entry.innerHTML = `<span class="aad-log-time">${timeStr}</span> <span class="aad-log-${level}">${esc(msg)}</span>`;
+  // Only auto-scroll if user is already at (or near) the bottom — preserves
+  // scroll position when the user has scrolled up to read history.
+  const stickToBottom = el.$log.scrollHeight - el.$log.scrollTop - el.$log.clientHeight <= 20;
   el.$log.appendChild(entry);
-  el.$log.scrollTop = el.$log.scrollHeight;
+  if (stickToBottom) el.$log.scrollTop = el.$log.scrollHeight;
 
   while (el.$log.children.length > 200) {
     el.$log.removeChild(el.$log.firstChild!);

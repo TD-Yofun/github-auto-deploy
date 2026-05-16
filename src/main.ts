@@ -33,6 +33,13 @@ let skipCooldownUntil = 0;
 let versionBlocked = false;
 let disconnectSkipObserver: (() => void) | null = null;
 let lastConclusion = '';
+// Terminal conclusion must persist across N consecutive polls before we stop.
+// Guards against transient flashes between deploy stages where the run-level
+// header momentarily shows a per-stage success icon before transitioning to
+// the next stage's waiting state.
+let pendingTerminal = '';
+let pendingTerminalSeen = 0;
+const TERMINAL_CONFIRM_POLLS = 2;
 
 // ── Global error capture → log ─────────────────────────────
 window.addEventListener('error', (e) => {
@@ -154,9 +161,26 @@ async function poll(): Promise<void> {
     lastConclusion = conclusion;
   }
   if (isTerminalConclusion(conclusion)) {
-    log(`🏁 Workflow ${conclusion} — stopping and generating report`, 'ok');
-    stop(false);
-    return;
+    if (pendingTerminal === conclusion) {
+      pendingTerminalSeen++;
+    } else {
+      pendingTerminal = conclusion;
+      pendingTerminalSeen = 1;
+    }
+    if (pendingTerminalSeen >= TERMINAL_CONFIRM_POLLS) {
+      log(`🏁 Workflow ${conclusion} confirmed (${pendingTerminalSeen} polls) — stopping and generating report`, 'ok');
+      stop(false);
+      return;
+    } else {
+      log(`⏳ Saw terminal status ${conclusion} — waiting one more poll to confirm (avoids cross-stage flashes)`);
+    }
+  } else {
+    // Non-terminal — clear any pending terminal confirmation
+    if (pendingTerminal) {
+      log(`↩ Pending terminal ${pendingTerminal} cleared (status returned to ${conclusion || 'unknown'})`);
+      pendingTerminal = '';
+      pendingTerminalSeen = 0;
+    }
   }
 
   // Watchdog: if no progress for WATCHDOG_TIMEOUT_MS, reload page to recover from stuck state
@@ -214,6 +238,8 @@ function start(): void {
   state.monitorStartedAt = Date.now();
   state.lastProgressAt = Date.now();
   lastConclusion = '';
+  pendingTerminal = '';
+  pendingTerminalSeen = 0;
   clearSession(cur.runId);
   clearStoredLogs();
   if (el) el.$log.innerHTML = '';
@@ -431,8 +457,11 @@ function buildPanelFor(params: RunParams): void {
   const workflow = getWorkflowName() || 'Deploy (PRD)';
   currentMeta = { owner: params.owner, repo: params.repo, runId: params.runId, workflow };
   renderRunInfo(el, currentMeta);
-  log(`Ready — ${params.owner}/${params.repo} run #${params.runId}`);
+  // Render historical logs FIRST so they appear above the new session entries.
+  // restoreLogsToPanel itself adds the "── 以下为刷新前日志 ──" + "── 当前会话开始 ──"
+  // separators, so any log() call afterwards lands cleanly under the new session.
   restoreLogsToPanel(el);
+  log(`Ready — ${params.owner}/${params.repo} run #${params.runId}`);
   currentRunId = params.runId;
 
   runVersionCheck();
