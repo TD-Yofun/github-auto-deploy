@@ -16,7 +16,7 @@ export function parseUrl(): RunParams | null {
   return { owner, repo, runId };
 }
 
-const DEPLOY_PRD_RE = /^\s*Deploy\s*\(\s*PRD\s*\)\s*$/i;
+const DEPLOY_PRD_RE = /Deploy\s*\(\s*PRD\s*\)/i;
 
 /** Detect whether the current page is a Deploy (PRD) workflow run page. */
 export function isDeployPRDPage(): boolean {

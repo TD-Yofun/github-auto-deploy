@@ -30,7 +30,7 @@
     const [, owner, repo, runId] = urlMatch;
     return { owner, repo, runId };
   }
-  const DEPLOY_PRD_RE = /^\s*Deploy\s*\(\s*PRD\s*\)\s*$/i;
+  const DEPLOY_PRD_RE = /Deploy\s*\(\s*PRD\s*\)/i;
   function isDeployPRDPage() {
     const labels = document.querySelectorAll(
       ".PageHeader-parentLink-label"
