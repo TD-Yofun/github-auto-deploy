@@ -1,5 +1,23 @@
 
 
+## [1.0.2](https://github.com/TD-Yofun/talkdesk-auto-deploy/compare/v1.0.1...v1.0.2) (2026-05-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* GitHub token is no longer used or stored. The script now relies entirely on the in-page "Start all waiting jobs" button being visible to the current user.
+
+### Refactor
+
+* switch to DOM-only mode, remove github token dependency ([d26a2e4](https://github.com/TD-Yofun/talkdesk-auto-deploy/commit/d26a2e49530b9327e88f1529da1766fe126d74a0))
+
+
+### Documentation
+
+* clarify why octokit fails behind proxy in release skill ([b5c969a](https://github.com/TD-Yofun/talkdesk-auto-deploy/commit/b5c969adb549ecd9a48c5dcd3fff81a1883c0633))
+* note release-it dry-run needs --ci and avoid pipes ([b9f071e](https://github.com/TD-Yofun/talkdesk-auto-deploy/commit/b9f071e760e16f3552e28b3dbaaf83259d758a00))
+* require explicit user confirmation in release skill ([d2ee96f](https://github.com/TD-Yofun/talkdesk-auto-deploy/commit/d2ee96fc4f9940632e499800d25a0b5008abecb3))
+
 ## 1.0.1 (2026-05-16)
 
 
