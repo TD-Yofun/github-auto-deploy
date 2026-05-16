@@ -2,186 +2,132 @@
 
 **English** | [中文](README.zh-CN.md)
 
-A Tampermonkey userscript that automatically approves GitHub Actions deployment gates and skips wait timers — no more manual clicking through multi-environment deploy pipelines.
+A Tampermonkey userscript that automatically clicks **"Start all waiting jobs"** on GitHub Actions deployment gates — no more manual clicking through multi-environment deploy pipelines.
+
+**No GitHub token required.** The script detects the break-glass button via DOM and clicks through the confirmation dialog using your existing browser session.
 
 Built with **Vite + TypeScript**, outputs `auto-approve-deploy.user.js` (dev) and `auto-approve-deploy.min.user.js` (minified) as bundled userscripts.
 
 ## Features
 
-- **Auto-approve deployment gates** — Detects pending deployment approvals via GitHub REST API and approves them automatically
-- **Skip wait timers** — Bypasses environment wait timers through DOM interaction (what API tokens can't do)
-- **Persistent state** — Survives page refreshes; auto-resumes monitoring after reload
-- **Grace period** — Tolerates "Re-run all jobs" delays (90s) before declaring a run complete
-- **Local log storage** — Optionally saves per-run logs to browser storage with download support
-- **Side panel UI** — Dark-themed, collapsible side panel with real-time status and execution summary report
+- **DOM-only auto-clicker** — Detects "Start all waiting jobs" via `MutationObserver` + periodic polling; clicks through the confirmation dialog automatically
+- **Targets only `Deploy (PRD)` runs** — Activates only when the page header workflow label matches `Deploy (PRD)` (substring match, emoji-prefix tolerant)
+- **Auto-stop + summary report** — Reads workflow conclusion from the page status badge (`success`/`failure`/`cancelled`/`timed_out`/`skipped`); stops automatically and generates a report
+- **Desktop notification** — `GM_notification` pops a system notification when a run reaches a terminal state (click to focus the tab)
+- **Copy report as Markdown** — One-click copy of the execution report to clipboard
+- **Pause / Resume** — Suspend monitoring without losing counters or session state
+- **Background-tab resistant** — Uses a dedicated Web Worker for the poll timer so browsers don't throttle to ≥1 min in background tabs
+- **Watchdog auto-reload** — If no progress for 10 minutes, the page reloads and monitoring resumes from session state
+- **Persistent across refreshes** — Counters, event timeline, and logs are restored after page reload via `wasRunning()` detection
+- **Logs always persisted** — Per-run log buffer survives refresh; download as `aad-run-<runId>.log` anytime
+- **Overview widget** — On non-run GitHub pages, a floating panel shows all currently monitored runs with quick-jump links
+- **bfcache safe** — `pageshow.persisted` re-initializes the panel after browser back/forward navigation
+- **Global error capture** — `window.error` and `unhandledrejection` are surfaced into the panel log
+- **Version check** — Compares against the latest GitHub Release; outdated scripts are blocked with a prominent install link and release notes
+- **Multi-tab safe** — Each tab (different `runId`) operates independently; all state is keyed by `runId`
 
 ## Installation
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) browser extension
 2. Click the link below to install the userscript:
 
-   - Full version: **[auto-approve-deploy.user.js](https://github.com/TD-Yofun/talkdesk-auto-deploy/raw/main/auto-approve-deploy.user.js)**
-   - Minified version: **[auto-approve-deploy.min.user.js](https://github.com/TD-Yofun/talkdesk-auto-deploy/raw/main/auto-approve-deploy.min.user.js)**
+   - **[auto-approve-deploy.min.user.js](https://github.com/TD-Yofun/talkdesk-auto-deploy/releases/latest/download/auto-approve-deploy.min.user.js)** (recommended)
+   - [auto-approve-deploy.user.js](https://github.com/TD-Yofun/talkdesk-auto-deploy/releases/latest/download/auto-approve-deploy.user.js) (unminified, for debugging)
 
-3. On first use, click **🔑 Token** to set your GitHub personal access token (run `gh auth token` in terminal to get one)
+3. That's it — no token, no configuration required.
 
 ## Usage
 
-1. Navigate to any GitHub Actions run page (`github.com/{owner}/{repo}/actions/runs/{id}`)
+1. Navigate to a Deploy (PRD) workflow run (`github.com/{owner}/{repo}/actions/runs/{id}`)
 2. The side panel appears on the right edge of the page
 3. Click **▶ Start** to begin monitoring
 4. The script will:
-   - Poll the run status every 15s (configurable)
-   - Auto-approve any pending deployment gates
-   - Attempt to skip wait timers via page DOM interaction
-   - Stop automatically when the run completes and show a summary report
+   - Watch the DOM for the "Start all waiting jobs" button and click through the dialog
+   - Poll every `interval` seconds as a fallback
+   - Auto-stop and show a summary report when the workflow reaches a terminal state
+   - Pop a desktop notification with the outcome
 
 ### Controls
 
 | Control | Description |
 |---------|-------------|
 | **▶ Start / ⏹ Stop** | Toggle monitoring |
-| **⏱ Interval** | Poll interval in seconds (5–300) |
-| **Approve** | Enable/disable auto-approve |
-| **Skip timers** | Enable/disable wait timer skipping |
-| **💾 Log** | Enable local log persistence |
-| **📥** | Download log file for current run |
-| **🔑 Token** | Set GitHub personal access token |
+| **⏸ Pause / ▶ Resume** | Suspend without losing counters; visible only while running |
+| **⏱ Interval** | Poll interval in seconds (5–300, default 15) |
+| **💾 Log** | Toggle the log-file hint display (logs are always persisted regardless) |
+| **📥** | Download the current run's log file (`aad-run-<runId>.log`) |
+| **📋 Copy MD** | (in summary report) copy the execution report as Markdown |
 
-> All config controls are disabled during execution to prevent accidental changes.
+> Interval and log controls are disabled during execution to prevent accidental changes.
 
 ### Panel Interactions
 
 - Click the **◀ AAD** tab on the right edge to expand/collapse the panel
-- **▶** button in the header to collapse
-- **×** to close the panel entirely
+- **▶** button in the header collapses the panel
 
-## Execution Flow
+### Overview Widget
+
+When you're on any GitHub page that is **not** a Deploy (PRD) run, a small floating widget in the bottom-right shows all runs currently being monitored across your tabs (within the last 30 minutes). Click an entry to jump to that run.
+
+## How It Works
 
 ```
-                         ┌────────────┐
-                         │ Page Load  │
-                         └─────┬──────┘
-                               │
-                    ┌──────────▼──────────┐
-                    │ URL matches          │
-                    │ actions/runs/*?      │
-                    └──┬───────────────┬──┘
-                   No  │               │ Yes
-                  ┌────▼──┐  ┌─────────▼──────────────┐
-                  │ Exit  │  │ Parse URL · Load Config │
-                  └───────┘  │ · Inject UI             │
-                             └─────────┬───────────────┘
-                                       │
-                            ┌──────────▼──────────┐
-                            │   Token configured?  │
-                            └──┬───────────────┬──┘
-                           No  │               │ Yes
-                     ┌─────────▼──────┐  ┌─────▼──────────┐
-                     │ Prompt for     │  │ Fetch run info  │
-                     │ GitHub token   │  └─────┬──────────┘
-                     └────────────────┘        │
-                                    ┌──────────▼──────────┐
-                                    │ Was running before   │
-                                    │ page refresh?        │
-                                    └──┬───────────────┬──┘
-                                   Yes │               │ No
-                            ┌──────────▼──┐   ┌────────▼───────────┐
-                            │ Resume:     │   │ Wait for user to   │
-                            │ restore     │   │ click ▶ Start      │
-                            │ session     │   └────────┬───────────┘
-                            └──────┬──────┘            │
-                                   └────────┬──────────┘
-                                            │
-                    ┌───────────────────────►│
-                    │               ┌───────▼────────┐
-                    │               │   POLL LOOP     │
-                    │               └───────┬────────┘
-                    │                       │
-                    │            ┌──────────▼──────────┐
-                    │            │ Fetch run status     │
-                    │            │ via GitHub API       │
-                    │            └──────────┬──────────┘
-                    │                       │
-                    │            ┌──────────▼──────────┐
-                    │            │  Run completed?      │
-                    │            └──┬───────────────┬──┘
-                    │           Yes │               │ No
-                    │    ┌─────────▼──────────┐    │
-                    │    │ Grace period active │    │
-                    │    │ & no approvals yet? │    │
-                    │    └──┬──────────────┬──┘    │
-                    │   Yes │              │ No     │
-                    │ ┌─────▼─────────┐ ┌──▼─────────────────┐
-                    │ │ Wait for      │ │ Generate summary   │
-                    │ │ re-run to     │ │ report · Stop      │
-                    ├─┤ propagate     │ └────────────────────┘
-                    │ └───────────────┘
-                    │                          │
-                    │               ┌──────────▼──────────┐
-                    │               │ Fetch pending        │
-                    │               │ deployments          │
-                    │               └──────────┬──────────┘
-                    │                          │
-                    │               ┌──────────▼──────────┐
-                    │               │ Approvable gates     │
-                    │               │ found?               │
-                    │               └──┬───────────────┬──┘
-                    │              Yes │               │ No
-                    │       ┌─────────▼──────────┐    │
-                    │       │ Approve via        │    │
-                    │       │ GitHub API         │    │
-                    │       └─────────┬──────────┘    │
-                    │                 │               │
-                    │       ┌─────────▼──────────┐    │
-                    ├───────┤ Quick re-poll (5s)  │    │
-                    │       └────────────────────┘    │
-                    │                          ┌──────▼──────────┐
-                    │                          │ Wait timer gates │
-                    │                          │ found?           │
-                    │                          └──┬───────────┬──┘
-                    │                         Yes │           │ No
-                    │              ┌──────────────▼────┐      │
-                    │              │ Already attempted  │      │
-                    │              │ this environment?  │      │
-                    │              └──┬─────────────┬──┘      │
-                    │            Yes │             │ No       │
-                    │                │    ┌────────▼───────┐  │
-                    │                │    │ Try skip via   │  │
-                    │                │    │ DOM interaction │  │
-                    │                │    └────────┬───────┘  │
-                    │                │    ┌────────▼───────┐  │
-                    │                │    │ Skip success?  │  │
-                    │                │    └──┬──────────┬──┘  │
-                    │                │   Yes │          │ No  │
-                    │         ┌──────▼──┐    │          │     │
-                    │         │ Wait for│    │          │     │
-                    │         │ timer   │ ┌──▼────────────┐  │
-                    │         │ expire  │ │ Page refresh · │  │
-                    │         └────┬────┘ │ Resume session │  │
-                    │              │      └───────┬────────┘  │
-                    │              │              │            │
-                    │       ┌──────▼──────────────▼──┐        │
-                    │       │ Schedule next poll     │◄───────┘
-                    └───────┤ (interval seconds)     │
-                            └────────────────────────┘
+                  ┌────────────────────┐
+                  │   Page Load (any   │
+                  │  github.com page)  │
+                  └─────────┬──────────┘
+                            │
+            ┌───────────────▼───────────────┐
+            │ URL = /…/actions/runs/<id>?   │
+            │   AND header label matches    │
+            │       /Deploy\s*\(PRD\)/      │
+            └─┬─────────────────────────────┘
+       No     │ Yes
+   ┌──────────▼─────────────┐      ┌─────────────────────────┐
+   │ Show overview widget    │      │ Build side panel + log  │
+   │ if active runs exist    │      │ store; restore logs;    │
+   └────────────────────────┘      │ resume if previously    │
+                                    │ running                 │
+                                    └────────┬────────────────┘
+                                             │
+                                  ┌──────────▼──────────────┐
+                                  │ User clicks ▶ Start     │
+                                  └──────────┬──────────────┘
+                                             │
+                            ┌────────────────▼────────────────┐
+                            │ MutationObserver + Worker-based │
+                            │ poll loop (interval seconds)    │
+                            └────────────────┬────────────────┘
+                                             │
+                       ┌─────────────────────┼─────────────────────┐
+                       │                     │                     │
+            ┌──────────▼──────────┐  ┌───────▼───────┐   ┌─────────▼──────────┐
+            │ "Start all waiting  │  │  Run reached  │   │ No progress for    │
+            │  jobs" button       │  │  terminal     │   │ 10 min (watchdog)? │
+            │  appears?           │  │  conclusion?  │   └─────────┬──────────┘
+            └──────────┬──────────┘  └───────┬───────┘             │ Yes
+                       │ Yes                 │ Yes                 ▼
+            ┌──────────▼──────────┐  ┌───────▼─────────────┐  ┌─────────────┐
+            │ Click button →      │  │ Stop + generate     │  │ location.   │
+            │ check checkboxes →  │  │ summary report →    │  │ reload();   │
+            │ submit dialog       │  │ desktop notification│  │ auto-resume │
+            └──────────┬──────────┘  └─────────────────────┘  └─────────────┘
+                       │
+              ┌────────▼────────┐
+              │ Cooldown 5s →   │
+              │ continue poll   │
+              └─────────────────┘
 ```
 
-## Token Permissions
-
-The GitHub token needs the following scope:
-
-- `repo` — Required to read workflow runs and approve deployments
-
-## How Skip Wait Timers Works
+## How "Start all waiting jobs" Click Works
 
 The script attempts 3 approaches in order:
 
-1. **Click "Start all waiting jobs"** → check environment checkboxes in dialog → click confirm button
-2. **Submit the skip form** with `gate_request[]` fields injected
-3. **Manual POST** using CSRF token extracted from the page
+1. **Click the visible button** → wait for confirmation dialog → check environment checkboxes → click submit
+2. **Programmatic form submit** with `gate_request[]` fields collected from the DOM
+3. **Manual POST** using a CSRF token extracted from the page (same-origin `fetch` with `credentials: 'same-origin'`)
 
-This uses your browser session cookies (not the API token), which is why it only works in-browser.
+All three rely on your existing browser session cookies — no API token is needed.
 
 ## Development
 
@@ -199,45 +145,39 @@ npm install
 ### Build
 
 ```bash
-# Build both dev and minified versions
-npm run build
-
-# Build dev version only
-npm run build:dev
-
-# Build minified version only
-npm run build:prod
+npm run build        # both dev + minified
+npm run build:dev    # dev only
+npm run build:prod   # minified only
 ```
 
 ### Watch Mode
 
 ```bash
-# Watch and rebuild dev version on file changes
-npm run dev
-
-# Watch and rebuild both versions on file changes
-npm run dev:all
+npm run dev          # rebuild dev on change
+npm run dev:all      # rebuild both on change
 ```
 
 ### Project Structure
 
 ```
 src/
-  main.ts              ← Entry point
-  core/                ← State & persistence
-    config.ts          ← Persistent config (GM_getValue/GM_setValue)
-    state.ts           ← Runtime state types & factory
-    log-store.ts       ← Log persistence (batch buffer, debounced flush)
-    session.ts         ← Session persistence across page refreshes
-  api/                 ← Network & DOM interaction
-    api.ts             ← GitHub REST API layer (GM_xmlhttpRequest)
-    skip-timers.ts     ← DOM-based skip wait timers (3 approaches)
-  ui/                  ← Rendering
+  main.ts              ← Entry point — wires modules, page detection, lifecycle
+  core/
+    config.ts          ← Persistent config (interval, saveLog hint, panelVisible)
+    state.ts           ← Runtime state types + watchdog constant
+    log-store.ts       ← Always-on log persistence (batch buffer, debounced flush)
+    session.ts         ← Session persistence across refreshes
+    scheduler.ts       ← Web Worker-based timer (avoids background tab throttling)
+    version-check.ts   ← Compare against latest GitHub Release; cache result
+  api/
+    skip-timers.ts     ← MutationObserver + 3-approach DOM-based clicker
+  ui/
     styles.ts          ← CSS injection via GM_addStyle
-    ui.ts              ← Panel build, render, event binding
-  utils/               ← Helpers
+    ui.ts              ← Panel build, render, event binding, summary + Markdown export
+    overview.ts        ← Floating active-runs widget for non-run pages
+  utils/
     helpers.ts         ← ts(), esc(), formatDuration()
-    url.ts             ← URL parsing (owner/repo/runId)
+    url.ts             ← URL parsing + Deploy (PRD) page detection
 ```
 
 ### Build Output
@@ -246,6 +186,10 @@ src/
 |------|-------------|
 | `auto-approve-deploy.user.js` | Dev build — unminified, readable |
 | `auto-approve-deploy.min.user.js` | Prod build — minified JS + compressed CSS/HTML templates |
+
+### Release Flow
+
+Local: `npm run release -- patch` (release-it) bumps version, builds, commits, tags. Then `git push --follow-tags origin main` triggers `.github/workflows/release.yml` which creates the GitHub Release and uploads both `.user.js` artifacts. See `.agents/skills/release/SKILL.md` for the full workflow.
 
 ## License
 

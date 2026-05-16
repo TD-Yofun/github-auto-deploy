@@ -1,55 +1,142 @@
-# Project Guidelines
+# Copilot Instructions
 
-## Overview
+## Project Overview
 
-Tampermonkey userscript that auto-approves GitHub Actions deployment gates and skips wait timers via DOM interaction. Built with Vite + TypeScript, outputs `auto-approve-deploy.user.js` as the bundled userscript.
-
-## Code Style
-
-- TypeScript with strict mode, modular `src/` structure
-- Vite + `vite-plugin-monkey` for building and userscript header generation
-- Tampermonkey GM_* APIs for cross-origin requests (`GM_xmlhttpRequest`), persistent storage (`GM_getValue`/`GM_setValue`), and CSS injection (`GM_addStyle`)
-- Template literals for HTML/CSS generation; `esc()` helper for XSS prevention
-- Async/await for API calls and DOM timing; `setTimeout` for polling loops
+Tampermonkey userscript that auto-clicks **"Start all waiting jobs"** on GitHub Actions `Deploy (PRD)` workflow runs. Pure DOM-based — **no GitHub token**. Built with Vite + TypeScript + `vite-plugin-monkey`; outputs `auto-approve-deploy.user.js` (dev) and `auto-approve-deploy.min.user.js` (prod).
 
 ## Architecture
 
 ```
 src/
-  main.ts              ← Entry point, wires all modules
-  core/
-    config.ts          ← Persistent config (GM_getValue/GM_setValue)
-    state.ts           ← Runtime state types & factory
-    log-store.ts       ← Log persistence (batch buffer, debounced flush)
-    session.ts         ← Session persistence (save/load/clear across refreshes)
-  api/
-    api.ts             ← GitHub REST API layer (GM_xmlhttpRequest)
-    skip-timers.ts     ← DOM-based skip wait timers (3 approaches)
-  ui/
-    styles.ts          ← CSS injection via GM_addStyle
-    ui.ts              ← Panel build, render, event binding
-  utils/
-    helpers.ts         ← ts(), esc(), formatDuration()
-    url.ts             ← URL parsing (owner/repo/runId)
-auto-approve-deploy.user.js      ← Build output, dev (do not edit)
-auto-approve-deploy.min.user.js  ← Build output, minified (do not edit)
-vite.config.ts       ← Vite + vite-plugin-monkey config
-README.md            ← User documentation (English)
-README.zh-CN.md      ← User documentation (Chinese)
+├── main.ts                      # Entry — wires modules, page detection, lifecycle, global error handlers
+├── core/
+│   ├── config.ts                # GM_getValue/setValue persistent config (interval, saveLog, panelVisible)
+│   ├── state.ts                 # Runtime state types; exports WATCHDOG_TIMEOUT_MS = 10 * 60 * 1000
+│   ├── log-store.ts             # Always-on per-run log buffer with debounced GM_setValue flush
+│   ├── session.ts               # SessionData (cross-refresh resume); keyed by runId
+│   ├── scheduler.ts             # Web Worker-based scheduleTick/cancelTick (avoids background tab throttling)
+│   └── version-check.ts         # Compare vs latest GitHub Release; cache result; block outdated
+├── api/
+│   └── skip-timers.ts           # MutationObserver + 3 click strategies for the gate button
+├── ui/
+│   ├── styles.ts                # GM_addStyle CSS for panel + overview widget
+│   ├── ui.ts                    # Panel HTML/render/event binding; summary report + Markdown export
+│   └── overview.ts              # Floating active-runs widget for non-run GitHub pages
+└── utils/
+    ├── helpers.ts               # ts(), esc(), formatDuration()
+    └── url.ts                   # parseRunUrl() + isDeployPrdPage() (matches /Deploy\s*\(PRD\)/)
 ```
 
-## Conventions
+## Critical Conventions
 
-- **No page refresh after API-only operations** — `softRefresh()` only for DOM-dependent actions (skip timers)
-- **Session persistence** — All counters (`sessionApproved`, `sessionSkipped`, `pollCycle`, `lastSkipKey`, `sessionEvents`) persist via `aad_session_{RUN_ID}` key
-- **`start()` vs `resume()`** — `start()` resets state (fresh), `resume()` restores from session (after page refresh)
-- **`lastSkipKey`** — Prevents redundant skip attempts on the same environment after reload
-- **Log entries** format: `[HH:MM:SS] [level] message` where level is `info`/`ok`/`warn`/`err`
-- **Event timeline** — `recordEvent(type, detail)` for summary report; types: `start`, `resume`, `approve`, `skip`, `complete`, `error`
-- Prefer quick re-poll (5s) after successful approve instead of full interval wait
+### Tampermonkey grants (vite.config.ts)
 
-## Security
+```
+GM_addStyle, GM_getValue, GM_setValue, GM_deleteValue, GM_listValues,
+GM_notification, unsafeWindow
+```
 
-- GitHub token stored in Tampermonkey secure storage (`GM_getValue`), never exposed to page scripts
-- DOM output always escaped via `esc()` helper to prevent XSS
-- CSRF tokens extracted from page DOM for skip form submissions (same-origin `fetch` with `credentials: 'same-origin'`)
+- `GM_notification` — desktop notification on terminal conclusion (click → focus tab)
+- `GM_listValues` / `GM_deleteValue` — used by `overview.ts` to scan `aad_running_*` and clean stale `aad_meta_*`
+
+### Storage keys (all keyed by `runId`)
+
+| Key | Purpose |
+|-----|---------|
+| `aad_config` | Global config (interval, saveLog, panelVisible) |
+| `aad_running_${runId}` | `true` while monitoring; used by `wasRunning()` for resume |
+| `aad_session_${runId}` | SessionData (counters, timeline, `lastProgressAt`) |
+| `aad_log_${runId}` | Persisted log buffer (always written; never gated) |
+| `aad_meta_${runId}` | `{owner, repo, workflow, url, updatedAt}` for overview widget |
+| `aad_version_check` | Cached latest release check |
+
+### State fields (state.ts)
+
+- `running: boolean` — main on/off
+- `paused: boolean` — pause toggle; when true, observer detached and tick is a heartbeat only
+- `lastProgressAt: number` — updated on every successful click/event; watchdog reloads page after `WATCHDOG_TIMEOUT_MS` of no progress
+- `counters` + `timeline[]` — surfaced in summary report
+
+### Activation conditions
+
+`main.ts → checkPage()` runs on every navigation event:
+1. URL must match `/{owner}/{repo}/actions/runs/{id}` → `parseRunUrl()`
+2. Page header workflow label must match `/Deploy\s*\(PRD\)/i` → `isDeployPrdPage()` (substring/emoji-prefix tolerant)
+3. If both → build/restore the panel; else → `mountOverviewWidget(false)` to maybe show overview widget
+
+### Scheduler (scheduler.ts)
+
+- Default: dedicated Web Worker via `Blob` URL with `self.onmessage` handling `{type:'start', ms}` / `{type:'stop'}`. Worker `setTimeout` is not throttled in background tabs.
+- Fallback: `setTimeout` when Worker unavailable.
+- Always use `scheduleTick(cb, ms)` / `cancelTick()` — never call `setTimeout` directly for the poll loop.
+
+### Logs always persisted
+
+`log-store.appendLogToStore()` is **not** gated by `_saveLog`. The `💾 Log` toggle only controls the hint text in the panel; logs are always written and always downloadable. **Do not re-add the gate.**
+
+### Conclusion detection
+
+`main.ts → readRunConclusion()`:
+1. Primary: `.actions-workflow-runs-status svg[aria-label]` — aria-label text contains keywords (`succeeded`, `failed`, `cancelled`, `timed out`, `skipped`, `in progress`)
+2. Fallback: scan for elements with `color-fg-success` / `color-fg-danger` / `color-fg-attention` classes
+3. `isTerminalConclusion(c)` matches terminal states → triggers auto-stop + summary + notification
+
+### Watchdog (10 min)
+
+In `poll()`: if `now - state.lastProgressAt > WATCHDOG_TIMEOUT_MS` while running and not paused → write final log, set running stays true (so resume triggers), then `location.reload()`. Resume path (`wasRunning()`) re-arms everything.
+
+### bfcache & error capture (main.ts)
+
+```ts
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) setTimeout(checkPage, 200);
+});
+window.addEventListener('error', /* → log */);
+window.addEventListener('unhandledrejection', /* → log */);
+```
+
+### Pause/Resume
+
+- `pauseMonitoring()` → disconnect observer + `cancelTick()`, keep `state.running = true`, set `state.paused = true`, start heartbeat tick
+- `resumeMonitoring()` → re-arm observer, reset `lastProgressAt = Date.now()`, clear `paused`, schedule next tick
+- `bindPanelEvents()` wires `#aad-pause-btn`; `renderToggle(el, running, paused)` shows label correctly
+
+### Overview widget (overview.ts)
+
+- `STALE_MS = 30 * 60 * 1000` — meta older than this is hidden
+- Only mounted when **not** on a Deploy (PRD) run page
+- Refreshes every 5s via `setInterval`
+- `saveRunMeta(runId, {...})` called from `start()` / `resume()` / panel build; `clearRunMeta(runId)` on manual stop
+
+### Cross-refresh resume
+
+- `wasRunning(runId)` checks `aad_running_${runId}`
+- On `checkPage()` for a Deploy (PRD) run, if running flag set → auto-resume `start()` after panel build
+- Counters/timeline come from `aad_session_${runId}`; logs from `aad_log_${runId}`
+
+### Multi-tab
+
+All state is keyed by `runId`, so multiple tabs running different deploys are independent. The overview widget aggregates across tabs via `GM_listValues()`.
+
+## Build & Release
+
+- `npm run build` → both dev + minified into project root
+- `npm run build:dev` / `npm run build:prod` → individual builds
+- `npm run dev` / `npm run dev:all` → watch mode
+- **Always run `npm run build` after touching `src/**`** before committing — both `.user.js` files must be in sync with source.
+- Release: `npm run release -- patch|minor|major` (release-it bumps + builds + commits + tags), then `git push --follow-tags origin main` → `.github/workflows/release.yml` creates GitHub Release with both artifacts. Full procedure: `.agents/skills/release/SKILL.md`.
+
+## Commit Convention
+
+Conventional Commits enforced by commitlint. See `.agents/skills/commit/SKILL.md` — includes mandatory **Phase 3 docs-sync check** that prompts the user about updating `README.md` / `README.zh-CN.md` / `.github/copilot-instructions.md`.
+
+## Do / Don't
+
+- ✅ Use `scheduleTick` / `cancelTick` for any periodic work
+- ✅ Key all new persistent state by `runId`
+- ✅ Update `lastProgressAt` on any meaningful action so watchdog doesn't trigger
+- ✅ Call `saveRunMeta` whenever monitoring starts/resumes; `clearRunMeta` on manual stop
+- ❌ Don't gate log writes behind the `saveLog` flag
+- ❌ Don't call `setTimeout` directly for the main poll loop
+- ❌ Don't add a GitHub token flow — DOM only
+- ❌ Don't run the script on non-Deploy (PRD) workflow runs (the label check exists to keep behavior scoped)

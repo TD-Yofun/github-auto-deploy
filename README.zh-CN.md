@@ -2,179 +2,129 @@
 
 [English](README.md) | **中文**
 
-一个 Tampermonkey 用户脚本，自动审批 GitHub Actions 部署门禁并跳过等待计时器——告别多环境部署流水线中的手动点击。
+一个 Tampermonkey 用户脚本，自动点击 GitHub Actions 部署门控上的 **"Start all waiting jobs"** 按钮——再也不用手动一环一环地批准多环境部署流水线。
 
-使用 **Vite + TypeScript** 构建，输出 `auto-approve-deploy.user.js`（开发版）和 `auto-approve-deploy.min.user.js`（压缩版）。
+**无需 GitHub Token。** 脚本通过 DOM 检测 break-glass 按钮，并基于你浏览器现有的登录会话点过确认弹窗。
+
+使用 **Vite + TypeScript** 构建，产出 `auto-approve-deploy.user.js`（开发版）和 `auto-approve-deploy.min.user.js`（压缩版）两个打包后的 userscript。
 
 ## 功能特性
 
-- **自动审批部署门禁** — 通过 GitHub REST API 检测待审批的部署并自动批准
-- **跳过等待计时器** — 通过 DOM 交互绕过环境等待计时器（API Token 无法实现的操作）
-- **状态持久化** — 页面刷新后自动恢复监控状态
-- **宽限期** — 容忍"重新运行所有作业"的延迟（90秒），不会误判为已完成
-- **本地日志存储** — 可选将每次运行的日志保存到浏览器存储，支持下载
-- **侧边面板** — 暗色主题、可折叠的侧边面板，实时显示状态和执行报告
+- **纯 DOM 自动点击器** —— 通过 `MutationObserver` 和定时轮询检测 "Start all waiting jobs"，自动点过确认对话框
+- **仅对 `Deploy (PRD)` 生效** —— 仅当页面头部 workflow label 匹配 `Deploy (PRD)`（子串匹配，容忍 emoji 前缀）时才激活
+- **自动停止 + 总结报告** —— 从页面状态徽标读取 workflow 结论（`success`/`failure`/`cancelled`/`timed_out`/`skipped`），命中终态后自动停止并生成报告
+- **桌面通知** —— `GM_notification` 在 run 进入终态时弹出系统通知（点击聚焦标签页）
+- **报告复制为 Markdown** —— 一键将执行报告复制到剪贴板
+- **暂停 / 恢复** —— 在不丢失计数器和会话状态的情况下暂停监控
+- **后台标签页抗节流** —— 使用专用 Web Worker 调度轮询，避免浏览器将后台标签页节流到 ≥1 分钟
+- **看门狗自动刷新** —— 若 10 分钟无进展则自动 reload 页面，并基于 session 恢复监控
+- **跨刷新持久化** —— 通过 `wasRunning()` 检测，刷新后自动恢复计数器、事件时间线和日志
+- **日志始终持久化** —— 每个 run 的日志缓冲区跨刷新保留，可随时下载 `aad-run-<runId>.log`
+- **概览小部件** —— 当你不在 run 详情页时，右下角浮动面板显示所有正在监控的 run（30 分钟内活跃），点击直达
+- **bfcache 安全** —— 通过 `pageshow.persisted` 在浏览器前进/后退后重新初始化面板
+- **全局错误捕获** —— `window.error` 和 `unhandledrejection` 会输出到面板日志
+- **版本检查** —— 与最新 GitHub Release 比对，过期脚本会被显眼地拦截并提供安装链接和 release notes
+- **多标签页安全** —— 每个标签页（不同 `runId`）独立运行，所有状态按 `runId` 隔离
 
 ## 安装
 
 1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 浏览器扩展
-2. 点击下方链接安装用户脚本：
+2. 点击下方链接安装 userscript：
 
-   - 完整版：**[auto-approve-deploy.user.js](https://github.com/TD-Yofun/talkdesk-auto-deploy/raw/main/auto-approve-deploy.user.js)**
-   - 压缩版：**[auto-approve-deploy.min.user.js](https://github.com/TD-Yofun/talkdesk-auto-deploy/raw/main/auto-approve-deploy.min.user.js)**
+   - **[auto-approve-deploy.min.user.js](https://github.com/TD-Yofun/talkdesk-auto-deploy/releases/latest/download/auto-approve-deploy.min.user.js)**（推荐）
+   - [auto-approve-deploy.user.js](https://github.com/TD-Yofun/talkdesk-auto-deploy/releases/latest/download/auto-approve-deploy.user.js)（未压缩，方便调试）
 
-3. 首次使用时，点击 **🔑 Token** 设置 GitHub 个人访问令牌（终端运行 `gh auth token` 获取）
+3. 完成——无需 token、无需配置。
 
 ## 使用方法
 
-1. 打开任意 GitHub Actions 运行页面（`github.com/{owner}/{repo}/actions/runs/{id}`）
-2. 侧边面板自动出现在右侧
+1. 打开一个 Deploy (PRD) workflow run（`github.com/{owner}/{repo}/actions/runs/{id}`）
+2. 页面右侧会出现侧边面板
 3. 点击 **▶ Start** 开始监控
-4. 脚本将：
-   - 每 15 秒（可配置）轮询运行状态
-   - 自动审批待处理的部署门禁
-   - 尝试通过页面 DOM 交互跳过等待计时器
-   - 运行完成后自动停止并生成执行报告
+4. 脚本将会：
+   - 监听 DOM 中的 "Start all waiting jobs" 按钮并点过确认对话框
+   - 每 `interval` 秒兜底轮询一次
+   - 当 workflow 进入终态时自动停止并显示总结报告
+   - 弹出桌面通知告知结果
 
-### 控件说明
+### 控件
 
 | 控件 | 说明 |
 |------|------|
-| **▶ Start / ⏹ Stop** | 开始/停止监控 |
-| **⏱ Interval** | 轮询间隔（5–300 秒） |
-| **Approve** | 启用/禁用自动审批 |
-| **Skip timers** | 启用/禁用跳过等待计时器 |
-| **💾 Log** | 启用本地日志持久化 |
-| **📥** | 下载当前运行的日志文件 |
-| **🔑 Token** | 设置 GitHub 个人访问令牌 |
+| **▶ Start / ⏹ Stop** | 切换监控状态 |
+| **⏸ Pause / ▶ Resume** | 暂停（不丢失计数器），仅运行时可见 |
+| **⏱ Interval** | 轮询间隔秒数（5–300，默认 15） |
+| **💾 Log** | 切换日志文件提示显示（无论开关如何，日志始终持久化） |
+| **📥** | 下载当前 run 的日志文件（`aad-run-<runId>.log`） |
+| **📋 Copy MD** | （在总结报告中）将执行报告复制为 Markdown |
 
-> 执行期间所有配置控件被禁用，防止误操作。
+> 运行期间 Interval 和 Log 控件被禁用，防止误改。
 
 ### 面板交互
 
-- 点击折叠标签展开/收起面板
-- 面板固定在页面右侧，全高度显示
+- 点击右侧边缘的 **◀ AAD** 标签展开/收起面板
+- 标题栏的 **▶** 按钮收起面板
 
-## 执行流程
+### 概览小部件
+
+当你在任意 **非** Deploy (PRD) run 的 GitHub 页面时，右下角会有一个小浮窗显示所有标签页里当前正在监控的 run（30 分钟内活跃）。点击某条记录可直达该 run。
+
+## 工作原理
 
 ```
-                         ┌────────────┐
-                         │  页面加载   │
-                         └─────┬──────┘
-                               │
-                    ┌──────────▼──────────┐
-                    │ URL 匹配             │
-                    │ actions/runs/*?      │
-                    └──┬───────────────┬──┘
-                    否 │               │ 是
-                  ┌────▼──┐  ┌─────────▼──────────────┐
-                  │ 退出  │  │ 解析 URL · 加载配置     │
-                  └───────┘  │ · 注入 UI               │
-                             └─────────┬───────────────┘
-                                       │
-                            ┌──────────▼──────────┐
-                            │  Token 已配置?       │
-                            └──┬───────────────┬──┘
-                            否 │               │ 是
-                     ┌─────────▼──────┐  ┌─────▼──────────┐
-                     │ 弹出 Token     │  │ 获取 Run 信息   │
-                     │ 输入提示       │  └─────┬──────────┘
-                     └────────────────┘        │
-                                    ┌──────────▼──────────┐
-                                    │ 刷新前正在运行?      │
-                                    └──┬───────────────┬──┘
-                                    是 │               │ 否
-                            ┌──────────▼──┐   ┌────────▼───────────┐
-                            │ 恢复:       │   │ 等待用户点击       │
-                            │ 还原会话    │   │ ▶ Start            │
-                            │ 状态        │   └────────┬───────────┘
-                            └──────┬──────┘            │
-                                   └────────┬──────────┘
-                                            │
-                    ┌───────────────────────►│
-                    │               ┌───────▼────────┐
-                    │               │   轮询循环      │
-                    │               └───────┬────────┘
-                    │                       │
-                    │            ┌──────────▼──────────┐
-                    │            │ 通过 GitHub API     │
-                    │            │ 获取运行状态        │
-                    │            └──────────┬──────────┘
-                    │                       │
-                    │            ┌──────────▼──────────┐
-                    │            │  运行已完成?         │
-                    │            └──┬───────────────┬──┘
-                    │            是 │               │ 否
-                    │    ┌─────────▼──────────┐    │
-                    │    │ 宽限期生效 且      │    │
-                    │    │ 尚无审批记录?      │    │
-                    │    └──┬──────────────┬──┘    │
-                    │    是 │              │ 否     │
-                    │ ┌─────▼─────────┐ ┌──▼─────────────────┐
-                    │ │ 等待 re-run   │ │ 生成执行报告 · 停止 │
-                    ├─┤ 生效          │ └────────────────────┘
-                    │ └───────────────┘
-                    │                          │
-                    │               ┌──────────▼──────────┐
-                    │               │ 获取待处理的部署     │
-                    │               └──────────┬──────────┘
-                    │                          │
-                    │               ┌──────────▼──────────┐
-                    │               │ 发现可审批的门禁?    │
-                    │               └──┬───────────────┬──┘
-                    │               是 │               │ 否
-                    │       ┌─────────▼──────────┐    │
-                    │       │ 通过 GitHub API    │    │
-                    │       │ 审批               │    │
-                    │       └─────────┬──────────┘    │
-                    │                 │               │
-                    │       ┌─────────▼──────────┐    │
-                    ├───────┤ 快速重新轮询 (5s)   │    │
-                    │       └────────────────────┘    │
-                    │                          ┌──────▼──────────┐
-                    │                          │ 发现等待计时器?  │
-                    │                          └──┬───────────┬──┘
-                    │                          是 │           │ 否
-                    │              ┌──────────────▼────┐      │
-                    │              │ 该环境已尝试过?    │      │
-                    │              └──┬─────────────┬──┘      │
-                    │             是 │             │ 否       │
-                    │                │    ┌────────▼───────┐  │
-                    │                │    │ 尝试通过 DOM   │  │
-                    │                │    │ 跳过           │  │
-                    │                │    └────────┬───────┘  │
-                    │                │    ┌────────▼───────┐  │
-                    │                │    │ 跳过成功?      │  │
-                    │                │    └──┬──────────┬──┘  │
-                    │                │    是 │          │ 否  │
-                    │         ┌──────▼──┐    │          │     │
-                    │         │等待计时 │    │          │     │
-                    │         │器到期   │ ┌──▼────────────┐  │
-                    │         │        │ │ 刷新页面 ·     │  │
-                    │         └────┬────┘ │ 恢复运行       │  │
-                    │              │      └───────┬────────┘  │
-                    │              │              │            │
-                    │       ┌──────▼──────────────▼──┐        │
-                    │       │ 等待下次轮询           │◄───────┘
-                    └───────┤ (interval 秒)          │
-                            └────────────────────────┘
+                  ┌────────────────────┐
+                  │   页面加载（任意    │
+                  │  github.com 页面） │
+                  └─────────┬──────────┘
+                            │
+            ┌───────────────▼───────────────┐
+            │ URL 是 /…/actions/runs/<id>?  │
+            │    且头部 label 匹配          │
+            │       /Deploy\s*\(PRD\)/      │
+            └─┬─────────────────────────────┘
+       否     │ 是
+   ┌──────────▼─────────────┐      ┌─────────────────────────┐
+   │ 若存在活跃 run，        │      │ 构建侧边面板 + 日志存储；│
+   │ 显示概览小部件          │      │ 恢复日志；若上次在运行   │
+   └────────────────────────┘      │ 则自动恢复               │
+                                    └────────┬────────────────┘
+                                             │
+                                  ┌──────────▼──────────────┐
+                                  │ 用户点击 ▶ Start        │
+                                  └──────────┬──────────────┘
+                                             │
+                            ┌────────────────▼────────────────┐
+                            │ MutationObserver + Worker 调度   │
+                            │ 轮询循环（每 interval 秒）       │
+                            └────────────────┬────────────────┘
+                                             │
+                       ┌─────────────────────┼─────────────────────┐
+                       │                     │                     │
+            ┌──────────▼──────────┐  ┌───────▼───────┐   ┌─────────▼──────────┐
+            │ "Start all waiting  │  │  Run 命中     │   │ 10 分钟无进展？     │
+            │  jobs" 按钮出现？   │  │  终态？       │   │ （看门狗）          │
+            └──────────┬──────────┘  └───────┬───────┘   └─────────┬──────────┘
+                       │ 是                  │ 是                  │ 是
+            ┌──────────▼──────────┐  ┌───────▼─────────────┐  ┌─────────────┐
+            │ 点击按钮 → 勾选环境 │  │ 停止 + 生成总结报告 │  │ location.   │
+            │ 勾选框 → 提交对话框  │  │ → 桌面通知          │  │ reload();   │
+            └──────────┬──────────┘  └─────────────────────┘  │ 自动恢复    │
+                       │                                       └─────────────┘
+              ┌────────▼────────┐
+              │ 冷却 5s → 继续  │
+              │ 轮询             │
+              └─────────────────┘
 ```
 
-## Token 权限要求
-
-GitHub Token 需要以下权限：
-
-- `repo` — 读取工作流运行和审批部署所需
-
-## 跳过等待计时器的工作原理
+## "Start all waiting jobs" 点击实现
 
 脚本按顺序尝试 3 种方式：
 
-1. **点击"Start all waiting jobs"按钮** → 勾选对话框中的环境复选框 → 点击确认按钮
-2. **提交 skip 表单**，注入 `gate_request[]` 字段
-3. **手动 POST 请求**，使用从页面提取的 CSRF Token
+1. **点击可见按钮** → 等待确认对话框 → 勾选环境复选框 → 点击提交
+2. **程序化表单提交**，从 DOM 收集 `gate_request[]` 字段
+3. **手工 POST**，从页面提取 CSRF token（同源 `fetch` 带 `credentials: 'same-origin'`）
 
-此功能使用浏览器会话 Cookie（而非 API Token），因此只能在浏览器内运行。
+三种方式都依赖你已有的浏览器会话 cookie——不需要 API token。
 
 ## 开发
 
@@ -192,54 +142,52 @@ npm install
 ### 构建
 
 ```bash
-# 同时构建开发版和压缩版
-npm run build
-
-# 仅构建开发版
-npm run build:dev
-
-# 仅构建压缩版
-npm run build:prod
+npm run build        # 同时构建 dev 和压缩版
+npm run build:dev    # 仅 dev
+npm run build:prod   # 仅压缩版
 ```
 
 ### Watch 模式
 
 ```bash
-# 文件修改后自动重新构建开发版
-npm run dev
-
-# 文件修改后自动同时构建两个版本
-npm run dev:all
+npm run dev          # 改动时重新构建 dev
+npm run dev:all      # 改动时同时重新构建两份
 ```
 
 ### 项目结构
 
 ```
 src/
-  main.ts              ← 入口文件
-  core/                ← 核心状态与持久化
-    config.ts          ← 持久化配置（GM_getValue/GM_setValue）
-    state.ts           ← 运行时状态类型与工厂函数
-    log-store.ts       ← 日志持久化（批量缓冲、防抖刷新）
-    session.ts         ← 会话持久化（跨页面刷新）
-  api/                 ← 网络请求与 DOM 交互
-    api.ts             ← GitHub REST API 层（GM_xmlhttpRequest）
-    skip-timers.ts     ← 基于 DOM 的跳过等待计时器（3 种方式）
-  ui/                  ← 界面渲染
-    styles.ts          ← CSS 注入（GM_addStyle）
-    ui.ts              ← 面板构建、渲染、事件绑定
-  utils/               ← 工具函数
+  main.ts              ← 入口 —— 串联模块、页面检测、生命周期
+  core/
+    config.ts          ← 持久化配置（interval、saveLog 提示、panelVisible）
+    state.ts           ← 运行时状态类型 + 看门狗常量
+    log-store.ts       ← 始终开启的日志持久化（批量缓冲、防抖写盘）
+    session.ts         ← 跨刷新的 session 持久化
+    scheduler.ts       ← 基于 Web Worker 的定时器（规避后台标签页节流）
+    version-check.ts   ← 与最新 GitHub Release 比对，结果缓存
+  api/
+    skip-timers.ts     ← MutationObserver + 3 种 DOM 点击策略
+  ui/
+    styles.ts          ← 通过 GM_addStyle 注入 CSS
+    ui.ts              ← 面板构建、渲染、事件绑定、总结 + Markdown 导出
+    overview.ts        ← 非 run 页面的活跃 run 浮动小部件
+  utils/
     helpers.ts         ← ts()、esc()、formatDuration()
-    url.ts             ← URL 解析（owner/repo/runId）
+    url.ts             ← URL 解析 + Deploy (PRD) 页面检测
 ```
 
 ### 构建产物
 
 | 文件 | 说明 |
 |------|------|
-| `auto-approve-deploy.user.js` | 开发版 — 未压缩，可读 |
-| `auto-approve-deploy.min.user.js` | 生产版 — JS 压缩 + CSS/HTML 模板压缩 |
+| `auto-approve-deploy.user.js` | 开发版 —— 未压缩，可读 |
+| `auto-approve-deploy.min.user.js` | 生产版 —— JS 压缩 + CSS/HTML 模板压缩 |
 
-## 许可证
+### 发布流程
+
+本地：`npm run release -- patch`（release-it）升版本号、构建、提交、打 tag。然后 `git push --follow-tags origin main` 触发 `.github/workflows/release.yml`，自动创建 GitHub Release 并上传两份 `.user.js` 产物。完整流程见 `.agents/skills/release/SKILL.md`。
+
+## License
 
 MIT
