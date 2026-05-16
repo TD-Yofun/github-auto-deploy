@@ -14,28 +14,41 @@ export function observeSkipButton(onDetected: () => void): () => void {
   const check = (el: HTMLElement): boolean =>
     /start all waiting/i.test(el.textContent || '');
 
-  const observer = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      for (const node of mutation.addedNodes) {
-        if (node.nodeType !== Node.ELEMENT_NODE) continue;
-        if (check(node as HTMLElement)) {
-          onDetected();
-          return;
-        }
-      }
+  // Scan the whole document for the button. Cheap (~few ms) and avoids
+  // missing late insertions inside already-existing containers that don't
+  // bubble up as top-level addedNodes.
+  const scanDocument = (): boolean => {
+    const candidates = document.querySelectorAll<HTMLElement>(
+      'button, [role="button"], summary, a.btn'
+    );
+    for (const btn of candidates) {
+      if (check(btn)) return true;
     }
+    return false;
+  };
+
+  let fired = false;
+  const tryFire = () => {
+    if (scanDocument()) {
+      if (fired) return; // already fired this batch
+      fired = true;
+      onDetected();
+      // Reset so next appearance (e.g., next environment gate) can re-fire,
+      // after a short debounce window. handleSkipDetected has its own
+      // skipInProgress + cooldown guards for re-entry protection.
+      setTimeout(() => { fired = false; }, 1000);
+    }
+  };
+
+  const observer = new MutationObserver(() => {
+    // Any DOM change → re-scan. Cheap and reliable.
+    tryFire();
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
 
   // Check if button already exists in the current DOM
-  const existing = document.querySelectorAll<HTMLElement>('button, [role="button"], summary');
-  for (const btn of existing) {
-    if (check(btn)) {
-      onDetected();
-      break;
-    }
-  }
+  tryFire();
 
   return () => observer.disconnect();
 }

@@ -181,6 +181,10 @@ async function poll(): Promise<void> {
     handleSkipDetected();
   } else {
     if (el) setStatus(el, `🔄 Monitoring (cycle ${state.pollCycle})...`);
+    // Heartbeat every 4 cycles (≈ 1 min @15s) so the log proves the loop is alive
+    if (state.pollCycle % 4 === 0) {
+      log(`💓 poll #${state.pollCycle} — status: ${conclusion || 'unknown'}`);
+    }
   }
 
   if (state.running) {
