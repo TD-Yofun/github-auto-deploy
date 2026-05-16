@@ -32,6 +32,8 @@ let skipInProgress = false;
 let skipCooldownUntil = 0;
 let versionBlocked = false;
 let disconnectSkipObserver: (() => void) | null = null;
+let statusObserver: MutationObserver | null = null;
+let statusPollDebounce: ReturnType<typeof setTimeout> | null = null;
 let lastConclusion = '';
 
 // ── Global error capture → log ─────────────────────────────
@@ -134,6 +136,43 @@ function stopSkipObserver(): void {
   }
 }
 
+// Observe the run-header status icon for changes and trigger an immediate poll
+// when it mutates. GitHub pushes header updates via socket channels (see the
+// `.js-updatable-content` wrapper); without this observer, conclusion changes
+// are only picked up on the next poll tick (default 15s).
+function startStatusObserver(): void {
+  stopStatusObserver();
+  // Re-attach periodically because GitHub may replace the container subtree on
+  // socket pushes. Walk up to find the most stable ancestor we can observe.
+  const target =
+    document.querySelector('.js-updatable-content[data-url*="header_partial"]') ||
+    document.querySelector('.actions-workflow-runs-status')?.closest('page-header') ||
+    document.querySelector('page-header') ||
+    document.body;
+  if (!target) return;
+  statusObserver = new MutationObserver(() => {
+    if (statusPollDebounce) clearTimeout(statusPollDebounce);
+    statusPollDebounce = setTimeout(() => {
+      statusPollDebounce = null;
+      if (state.running && !state.paused) {
+        void poll();
+      }
+    }, 200);
+  });
+  statusObserver.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-label', 'class'] });
+}
+
+function stopStatusObserver(): void {
+  if (statusObserver) {
+    statusObserver.disconnect();
+    statusObserver = null;
+  }
+  if (statusPollDebounce) {
+    clearTimeout(statusPollDebounce);
+    statusPollDebounce = null;
+  }
+}
+
 // ── Periodic poll (fallback: detect when observer misses) ──
 async function poll(): Promise<void> {
   if (!state.running) return;
@@ -224,6 +263,7 @@ function start(): void {
   log(`🚀 Started monitoring run #${cur.runId} (interval=${config.interval}s)`);
   if (el) renderToggle(el, true, false);
   startSkipObserver();
+  startStatusObserver();
   poll();
 }
 
@@ -249,6 +289,7 @@ function resume(): void {
     renderCounters(el, state);
   }
   startSkipObserver();
+  startStatusObserver();
   poll();
 }
 
@@ -256,6 +297,7 @@ function pauseMonitoring(): void {
   if (!state.running || state.paused) return;
   state.paused = true;
   stopSkipObserver();
+  stopStatusObserver();
   cancelTick();
   if (state.pollTimer) { clearTimeout(state.pollTimer); state.pollTimer = null; }
   log('⏸ Paused — click Resume to continue', 'warn');
@@ -275,6 +317,7 @@ function resumeMonitoring(): void {
   log('▶ Resumed', 'ok');
   if (el) renderToggle(el, true, false);
   startSkipObserver();
+  startStatusObserver();
   poll();
 }
 
@@ -348,6 +391,7 @@ function stop(manual = true): void {
   if (state.startRunId) saveRunningState(state.startRunId, false);
   if (state.startRunId) clearRunMeta(state.startRunId);
   stopSkipObserver();
+  stopStatusObserver();
   cancelTick();
   if (state.pollTimer) {
     clearTimeout(state.pollTimer);
