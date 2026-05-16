@@ -134,6 +134,18 @@ export function injectStyles(): void {
     #aad-toggle-btn.start:hover { background: #2ea043; }
     #aad-toggle-btn.stop  { background: #da3633; }
     #aad-toggle-btn.stop:hover  { background: #f85149; }
+    #aad-pause-btn {
+      padding: 5px 12px;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      background: #21262d;
+      color: #e6edf3;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #aad-pause-btn:hover { background: #30363d; }
+    #aad-pause-btn[hidden] { display: none !important; }
     #aad-controls label {
       display: flex;
       align-items: center;
@@ -209,7 +221,25 @@ export function injectStyles(): void {
       font-size: 13px;
       margin-bottom: 8px;
       color: #e6edf3;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
+    .aad-summary-header .aad-summary-actions {
+      display: flex;
+      gap: 6px;
+    }
+    .aad-summary-header button {
+      background: #21262d;
+      border: 1px solid #30363d;
+      color: #e6edf3;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .aad-summary-header button:hover { background: #30363d; }
+    .aad-summary-header button.aad-copied { background: #238636; border-color: #2ea043; }
     .aad-summary-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -247,5 +277,59 @@ export function injectStyles(): void {
     .aad-log-ok    { color: #3fb950; }
     .aad-log-warn  { color: #d29922; }
     .aad-log-err   { color: #f85149; }
+
+    /* ── Overview Widget (Actions list pages) ─────────────── */
+    #aad-overview {
+      position: fixed !important;
+      bottom: 16px; right: 16px;
+      width: 320px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 12px;
+      z-index: 2147483646 !important;
+      box-shadow: 0 4px 16px rgba(0,0,0,.4);
+      overflow: hidden;
+    }
+    #aad-overview .aad-ov-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #0d1117;
+      border-bottom: 1px solid #30363d;
+      font-weight: 600;
+    }
+    #aad-overview .aad-ov-close {
+      background: none; border: none; color: #8b949e; cursor: pointer;
+      font-size: 16px; line-height: 1; padding: 0 4px;
+    }
+    #aad-overview .aad-ov-close:hover { color: #e6edf3; }
+    #aad-overview .aad-ov-body {
+      max-height: 240px;
+      overflow-y: auto;
+      padding: 4px 0;
+    }
+    #aad-overview .aad-ov-item {
+      padding: 6px 12px;
+      border-bottom: 1px solid #21262d;
+    }
+    #aad-overview .aad-ov-item:last-child { border-bottom: none; }
+    #aad-overview .aad-ov-link {
+      color: #58a6ff;
+      text-decoration: none;
+      display: block;
+      font-size: 12px;
+      word-break: break-all;
+    }
+    #aad-overview .aad-ov-link:hover { text-decoration: underline; }
+    #aad-overview .aad-ov-meta {
+      display: block;
+      margin-top: 2px;
+      color: #8b949e;
+      font-size: 11px;
+    }
   `);
 }

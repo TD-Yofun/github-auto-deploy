@@ -21,6 +21,7 @@ interface SessionData {
   startedAt: number;
   pollCycle: number;
   lastSkipKey: string;
+  lastProgressAt: number;
 }
 
 export function saveSession(runId: string, state: State): void {
@@ -32,6 +33,7 @@ export function saveSession(runId: string, state: State): void {
     startedAt: state.monitorStartedAt,
     pollCycle: state.pollCycle,
     lastSkipKey: state.lastSkipKey,
+    lastProgressAt: state.lastProgressAt,
   } satisfies SessionData);
 }
 
@@ -45,6 +47,7 @@ export function loadSession(runId: string, state: State): boolean {
   state.monitorStartedAt = s.startedAt || Date.now();
   state.pollCycle = s.pollCycle || 0;
   state.lastSkipKey = s.lastSkipKey || '';
+  state.lastProgressAt = s.lastProgressAt || 0;
   return true;
 }
 

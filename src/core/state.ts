@@ -9,6 +9,7 @@ export interface SessionEvent {
 
 export interface State {
   running: boolean;
+  paused: boolean;
   pollTimer: ReturnType<typeof setTimeout> | null;
   /** runId captured when start() was called — guards against URL drift */
   startRunId: string | null;
@@ -19,13 +20,17 @@ export interface State {
   pollCycle: number;
   sessionSkipped: number;
   sessionEvents: SessionEvent[];
+  /** Timestamp of last successful approve/skip; used by watchdog to auto-reload when stuck */
+  lastProgressAt: number;
 }
 
 export const GRACE_PERIOD = 90; // seconds to wait for re-run to propagate
+export const WATCHDOG_TIMEOUT_MS = 10 * 60 * 1000; // 10min no progress → reload page
 
 export function createState(): State {
   return {
     running: false,
+    paused: false,
     pollTimer: null,
     startRunId: null,
     sessionApproved: 0,
@@ -35,5 +40,6 @@ export function createState(): State {
     pollCycle: 0,
     sessionSkipped: 0,
     sessionEvents: [],
+    lastProgressAt: 0,
   };
 }

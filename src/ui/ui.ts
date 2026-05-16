@@ -11,6 +11,7 @@ export interface UIElements {
   tab: HTMLDivElement;
   $info: HTMLElement;
   $toggleBtn: HTMLButtonElement;
+  $pauseBtn: HTMLButtonElement;
   $intervalIn: HTMLInputElement;
   $chkSaveLog: HTMLInputElement;
   $dlLogBtn: HTMLButtonElement;
@@ -36,6 +37,7 @@ export function buildUI(runId: string, config: Config): UIElements {
       <div id="aad-info">Loading run info...</div>
       <div id="aad-controls">
         <button id="aad-toggle-btn" class="start">▶ Start</button>
+        <button id="aad-pause-btn" hidden>⏸ Pause</button>
         <div id="aad-interval-wrap">
           ⏱ <input id="aad-interval-input" type="number" min="5" max="300" value="${config.interval}">s
         </div>
@@ -65,6 +67,7 @@ export function buildUI(runId: string, config: Config): UIElements {
     tab,
     $info: document.getElementById('aad-info')!,
     $toggleBtn: document.getElementById('aad-toggle-btn') as HTMLButtonElement,
+    $pauseBtn: document.getElementById('aad-pause-btn') as HTMLButtonElement,
     $intervalIn: document.getElementById('aad-interval-input') as HTMLInputElement,
     $chkSaveLog: document.getElementById('aad-chk-savelog') as HTMLInputElement,
     $dlLogBtn: document.getElementById('aad-dl-log-btn') as HTMLButtonElement,
@@ -107,14 +110,17 @@ export function renderRunInfo(el: UIElements, info: { owner: string; repo: strin
   `;
 }
 
-export function renderToggle(el: UIElements, running: boolean): void {
+export function renderToggle(el: UIElements, running: boolean, paused = false): void {
   if (running) {
     el.$toggleBtn.textContent = '⏹ Stop';
     el.$toggleBtn.className = 'stop';
+    el.$pauseBtn.hidden = false;
+    el.$pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause';
     setControlsEnabled(el, false);
   } else {
     el.$toggleBtn.textContent = '▶ Start';
     el.$toggleBtn.className = 'start';
+    el.$pauseBtn.hidden = true;
     setControlsEnabled(el, true);
   }
 }
@@ -180,7 +186,42 @@ export function restoreLogsToPanel(el: UIElements): void {
   el.$log.scrollTop = el.$log.scrollHeight;
 }
 
-export function generateSummary(el: UIElements, state: State, config: Config, conclusion: string): void {
+export function summaryToMarkdown(state: State, config: Config, conclusion: string, info?: { owner?: string; repo?: string; runId?: string; workflow?: string }): string {
+  const duration = Date.now() - state.monitorStartedAt;
+  const head = info?.workflow ? `## 📊 ${info.workflow} — Run #${info.runId || ''}` : `## 📊 执行报告`;
+  const where = info?.owner && info?.repo
+    ? `\n**Repository:** ${info.owner}/${info.repo}` +
+      (info.runId ? `  \n**Run:** [#${info.runId}](https://github.com/${info.owner}/${info.repo}/actions/runs/${info.runId})` : '')
+    : '';
+  const lines = [
+    head,
+    where,
+    '',
+    `- **结果:** ${conclusion || 'unknown'}`,
+    `- **总耗时:** ${formatDuration(duration)}`,
+    `- **轮询次数:** ${state.pollCycle}`,
+    `- **审批通过:** ${state.sessionApproved}`,
+    `- **跳过计时器:** ${state.sessionSkipped}`,
+    `- **轮询间隔:** ${config.interval}s`,
+    `- **开始时间:** ${new Date(state.monitorStartedAt).toLocaleString()}`,
+  ];
+  if (state.sessionEvents.length > 0) {
+    lines.push('', '### 📋 执行时间线', '');
+    state.sessionEvents.forEach((ev) => {
+      const t = new Date(ev.ts).toLocaleTimeString('en-US', { hour12: false });
+      const icon = ev.type === 'approve' ? '✅' :
+                   ev.type === 'skip' ? '⏭' :
+                   ev.type === 'error' ? '❌' :
+                   ev.type === 'start' ? '🚀' :
+                   ev.type === 'resume' ? '🔄' :
+                   ev.type === 'complete' ? '🏁' : '📌';
+      lines.push(`- \`${t}\` ${icon} ${ev.detail}`);
+    });
+  }
+  return lines.join('\n') + '\n';
+}
+
+export function generateSummary(el: UIElements, state: State, config: Config, conclusion: string, info?: { owner?: string; repo?: string; runId?: string; workflow?: string }): void {
   const duration = Date.now() - state.monitorStartedAt;
 
   const timelineHtml = state.sessionEvents.map((ev) => {
@@ -199,7 +240,12 @@ export function generateSummary(el: UIElements, state: State, config: Config, co
   const statusClass = ok ? 'aad-log-ok' : 'aad-log-err';
 
   el.$summary.innerHTML = `
-    <div class="aad-summary-header">📊 执行报告</div>
+    <div class="aad-summary-header">
+      <span>📊 执行报告</span>
+      <span class="aad-summary-actions">
+        <button id="aad-copy-summary-btn" title="复制为 Markdown">📋 Copy MD</button>
+      </span>
+    </div>
     <div class="aad-summary-grid">
       <div class="aad-summary-item">
         <span class="aad-summary-label">结果</span>
@@ -227,11 +273,28 @@ export function generateSummary(el: UIElements, state: State, config: Config, co
       </div>
     </div>
     ${state.sessionEvents.length > 0 ? `
-      <div class="aad-summary-header" style="margin-top:8px">📋 执行时间线</div>
+      <div class="aad-summary-header" style="margin-top:8px"><span>📋 执行时间线</span></div>
       <div class="aad-timeline">${timelineHtml}</div>
     ` : ''}
   `;
   el.$summary.style.display = 'block';
+
+  const copyBtn = el.$summary.querySelector<HTMLButtonElement>('#aad-copy-summary-btn');
+  copyBtn?.addEventListener('click', async () => {
+    const md = summaryToMarkdown(state, config, conclusion, info);
+    try {
+      await navigator.clipboard.writeText(md);
+      copyBtn.textContent = '✓ Copied!';
+      copyBtn.classList.add('aad-copied');
+      setTimeout(() => {
+        copyBtn.textContent = '📋 Copy MD';
+        copyBtn.classList.remove('aad-copied');
+      }, 1500);
+    } catch {
+      // Fallback: open in prompt
+      window.prompt('复制以下 Markdown:', md);
+    }
+  });
 }
 
 function setControlsEnabled(el: UIElements, enabled: boolean): void {

@@ -6,9 +6,10 @@
  */
 import { parseUrl, isDeployPRDPage, getWorkflowName, type RunParams } from './utils/url';
 import { loadConfig, saveConfigField } from './core/config';
-import { createState, type State } from './core/state';
-import { initLogStore, setLogSaving, downloadLog } from './core/log-store';
+import { createState, WATCHDOG_TIMEOUT_MS, type State } from './core/state';
+import { initLogStore, downloadLog } from './core/log-store';
 import { saveRunningState, wasRunning, saveSession, loadSession, clearSession } from './core/session';
+import { scheduleTick, cancelTick } from './core/scheduler';
 import { trySkipWaitTimers, observeSkipButton } from './api/skip-timers';
 import { checkLatestVersion, getCurrentVersion } from './core/version-check';
 import { esc } from './utils/helpers';
@@ -18,6 +19,7 @@ import {
   setStatus, addLog, restoreLogsToPanel, generateSummary,
   type UIElements,
 } from './ui/ui';
+import { mountOverviewWidget, saveRunMeta, clearRunMeta } from './ui/overview';
 
 const config = loadConfig();
 const state: State = createState();
@@ -25,10 +27,31 @@ injectStyles();
 
 let el: UIElements | null = null;
 let currentRunId: string | null = null;
+let currentMeta: { owner: string; repo: string; runId: string; workflow: string } | null = null;
 let skipInProgress = false;
 let skipCooldownUntil = 0;
 let versionBlocked = false;
 let disconnectSkipObserver: (() => void) | null = null;
+
+// ── Global error capture → log ─────────────────────────────
+window.addEventListener('error', (e) => {
+  const msg = e.error?.stack || e.message || String(e);
+  if (/aad|auto[-_]?approve/i.test(msg) || (e.filename || '').includes('user.js')) {
+    log(`💥 Uncaught error: ${msg.slice(0, 300)}`, 'err');
+  }
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const reason = e.reason?.stack || e.reason?.message || String(e.reason);
+  log(`💥 Unhandled rejection: ${String(reason).slice(0, 300)}`, 'err');
+});
+
+// ── bfcache restore → re-init ──────────────────────────────
+window.addEventListener('pageshow', (e) => {
+  if ((e as PageTransitionEvent).persisted) {
+    log('🔄 Page restored from bfcache — re-checking');
+    setTimeout(checkPage, 200);
+  }
+});
 
 // ── Helpers ────────────────────────────────────────────────
 function log(msg: string, level?: string): void {
@@ -64,7 +87,7 @@ function abortIfDrifted(): boolean {
 
 // ── Skip-button observer & poll ────────────────────────────
 async function handleSkipDetected(): Promise<void> {
-  if (skipInProgress || !state.running) return;
+  if (skipInProgress || !state.running || state.paused) return;
   if (Date.now() < skipCooldownUntil) return;
   if (!abortIfDrifted()) return;
 
@@ -80,6 +103,7 @@ async function handleSkipDetected(): Promise<void> {
       state.sessionApproved++;
       state.sessionSkipped++;
       state.totalApproved++;
+      state.lastProgressAt = Date.now();
       recordEvent('approve', 'Clicked "Start all waiting jobs"');
       if (el) renderCounters(el, state);
       saveSession(state.startRunId!, state);
@@ -112,10 +136,34 @@ function stopSkipObserver(): void {
 // ── Periodic poll (fallback: detect when observer misses) ──
 async function poll(): Promise<void> {
   if (!state.running) return;
+  if (state.paused) {
+    // While paused, just reschedule a heartbeat
+    scheduleTick(poll, config.interval * 1000);
+    return;
+  }
   if (!abortIfDrifted()) return;
 
   state.pollCycle++;
   saveRunningState(state.startRunId!, true);
+
+  // Auto-stop when workflow has reached a terminal conclusion
+  const conclusion = readRunConclusion();
+  if (isTerminalConclusion(conclusion)) {
+    log(`🏁 Workflow ${conclusion} — stopping and generating report`, 'ok');
+    stop(false);
+    return;
+  }
+
+  // Watchdog: if no progress for WATCHDOG_TIMEOUT_MS, reload page to recover from stuck state
+  if (state.lastProgressAt > 0 && Date.now() - state.lastProgressAt >= WATCHDOG_TIMEOUT_MS) {
+    const mins = Math.round(WATCHDOG_TIMEOUT_MS / 60000);
+    log(`⏱️ Watchdog: no progress for ${mins} min — reloading page to recover...`, 'warn');
+    recordEvent('error', `Watchdog reload after ${mins} min of no progress`);
+    saveSession(state.startRunId!, state);
+    saveRunningState(state.startRunId!, true);
+    setTimeout(() => location.reload(), 300);
+    return;
+  }
 
   // Check DOM for the button as fallback
   const btnText = /start all waiting/i;
@@ -131,7 +179,7 @@ async function poll(): Promise<void> {
   }
 
   if (state.running) {
-    state.pollTimer = setTimeout(poll, config.interval * 1000);
+    scheduleTick(poll, config.interval * 1000);
   }
 }
 
@@ -147,6 +195,7 @@ function start(): void {
     return;
   }
   state.running = true;
+  state.paused = false;
   state.startRunId = cur.runId;
   state.sessionApproved = 0;
   state.sessionSkipped = 0;
@@ -154,12 +203,14 @@ function start(): void {
   state.lastSkipKey = '';
   state.pollCycle = 0;
   state.monitorStartedAt = Date.now();
+  state.lastProgressAt = Date.now();
   clearSession(cur.runId);
   saveRunningState(cur.runId, true);
+  if (currentMeta) saveRunMeta(cur.runId, currentMeta);
   if (el) el.$summary.style.display = 'none';
   recordEvent('start', `Started on run #${cur.runId} (interval=${config.interval}s)`);
   log(`🚀 Started monitoring run #${cur.runId} (interval=${config.interval}s)`);
-  if (el) renderToggle(el, true);
+  if (el) renderToggle(el, true, false);
   startSkipObserver();
   poll();
 }
@@ -172,37 +223,128 @@ function resume(): void {
   const cur = parseUrl();
   if (!cur) return;
   state.running = true;
+  state.paused = false;
   state.startRunId = cur.runId;
   loadSession(cur.runId, state);
+  if (!state.lastProgressAt) state.lastProgressAt = Date.now();
   saveRunningState(cur.runId, true);
+  if (currentMeta) saveRunMeta(cur.runId, currentMeta);
   if (el) el.$summary.style.display = 'none';
   recordEvent('resume', `Resumed after page refresh`);
   log(`🚀 Resumed monitoring run #${cur.runId} (interval=${config.interval}s)`);
   if (el) {
-    renderToggle(el, true);
+    renderToggle(el, true, false);
     renderCounters(el, state);
   }
   startSkipObserver();
   poll();
 }
 
-function stop(): void {
-  state.running = false;
-  if (state.startRunId) saveRunningState(state.startRunId, false);
+function pauseMonitoring(): void {
+  if (!state.running || state.paused) return;
+  state.paused = true;
   stopSkipObserver();
+  cancelTick();
+  if (state.pollTimer) { clearTimeout(state.pollTimer); state.pollTimer = null; }
+  log('⏸ Paused — click Resume to continue', 'warn');
+  if (state.startRunId) saveSession(state.startRunId, state);
+  if (el) {
+    renderToggle(el, true, true);
+    setStatus(el, '⏸ Paused');
+  }
+  // Heartbeat so unpause check still wakes us
+  scheduleTick(poll, config.interval * 1000);
+}
+
+function resumeMonitoring(): void {
+  if (!state.running || !state.paused) return;
+  state.paused = false;
+  state.lastProgressAt = Date.now(); // reset watchdog after pause
+  log('▶ Resumed', 'ok');
+  if (el) renderToggle(el, true, false);
+  startSkipObserver();
+  poll();
+}
+
+/** Best-effort read of workflow run conclusion from the page DOM. */
+function readRunConclusion(): string {
+  // Primary: status SVG inside the page header leading visual
+  const svg = document.querySelector<SVGElement>(
+    '.actions-workflow-runs-status svg[aria-label]'
+  );
+  const label = (svg?.getAttribute('aria-label') || '').toLowerCase();
+  if (label) {
+    if (/success/.test(label)) return 'success';
+    if (/failure|failed/.test(label)) return 'failure';
+    if (/cancel/.test(label)) return 'cancelled';
+    if (/timed.?out/.test(label)) return 'timed_out';
+    if (/skipped/.test(label)) return 'skipped';
+    if (/action.?required/.test(label)) return 'action_required';
+    if (/in progress|queued|waiting|pending|requested/.test(label)) return 'in_progress';
+  }
+  // Fallback: SVG class color hints
+  const cls = svg?.getAttribute('class') || '';
+  if (/color-fg-success/.test(cls)) return 'success';
+  if (/color-fg-danger/.test(cls)) return 'failure';
+  if (/color-fg-muted/.test(cls)) return 'cancelled';
+  return '';
+}
+
+/** Returns true if conclusion indicates the run finished (no more work expected). */
+function isTerminalConclusion(c: string): boolean {
+  return c === 'success' || c === 'failure' || c === 'cancelled' || c === 'timed_out' || c === 'skipped';
+}
+
+function stop(manual = true): void {
+  state.running = false;
+  state.paused = false;
+  if (state.startRunId) saveRunningState(state.startRunId, false);
+  if (state.startRunId) clearRunMeta(state.startRunId);
+  stopSkipObserver();
+  cancelTick();
   if (state.pollTimer) {
     clearTimeout(state.pollTimer);
     state.pollTimer = null;
   }
   log(`⏹ Stopped (cycles=${state.pollCycle}, clicks=${state.sessionApproved})`);
+  const conclusion = readRunConclusion() || (manual ? 'stopped' : 'unknown');
+  recordEvent('complete', `Stopped — ${conclusion} (duration=${Math.round((Date.now() - state.monitorStartedAt) / 1000)}s)`);
   if (state.startRunId) saveSession(state.startRunId, state);
-  if (el) renderToggle(el, false);
+  if (el) {
+    renderToggle(el, false);
+    generateSummary(el, state, config, conclusion, currentMeta || undefined);
+  }
+  notifyCompletion(conclusion, manual);
+}
+
+function notifyCompletion(conclusion: string, manual: boolean): void {
+  if (manual && conclusion === 'stopped') return; // don't notify on manual stop
+  try {
+    const icon = conclusion === 'success' ? '✅'
+               : conclusion === 'failure' ? '❌'
+               : conclusion === 'cancelled' ? '⚠️'
+               : '🏁';
+    const where = currentMeta ? `${currentMeta.owner}/${currentMeta.repo}` : 'workflow';
+    const text = `Run #${currentMeta?.runId || state.startRunId || ''} — ${conclusion}\n✅ ${state.sessionApproved} · ⏱ ${Math.round((Date.now() - state.monitorStartedAt) / 1000)}s`;
+    GM_notification({
+      title: `${icon} AAD — ${where}`,
+      text,
+      timeout: 10000,
+      onclick: () => { try { window.focus(); } catch { /* noop */ } },
+    });
+  } catch (e) {
+    log(`Notification failed: ${(e as Error).message}`, 'warn');
+  }
 }
 
 // ── Panel build/teardown (driven by page detection) ────────
 function bindPanelEvents(panel: UIElements, runId: string): void {
   panel.$toggleBtn.addEventListener('click', () => {
     state.running ? stop() : start();
+  });
+
+  panel.$pauseBtn.addEventListener('click', () => {
+    state.paused ? resumeMonitoring() : pauseMonitoring();
   });
 
   panel.$intervalIn.addEventListener('change', () => {
@@ -214,7 +356,6 @@ function bindPanelEvents(panel: UIElements, runId: string): void {
   panel.$chkSaveLog.addEventListener('change', () => {
     config.saveLog = panel.$chkSaveLog.checked;
     saveConfigField('saveLog', config.saveLog);
-    setLogSaving(config.saveLog);
     panel.$logPath.style.display = config.saveLog ? 'block' : 'none';
     log(config.saveLog ? `💾 日志记录已开启 — 文件: aad-run-${runId}.log` : '💾 日志记录已关闭', config.saveLog ? 'ok' : 'info');
   });
@@ -223,17 +364,14 @@ function bindPanelEvents(panel: UIElements, runId: string): void {
 }
 
 function buildPanelFor(params: RunParams): void {
-  initLogStore(params.runId, config.saveLog);
+  initLogStore(params.runId);
   el = buildUI(params.runId, config);
   bindPanelEvents(el, params.runId);
-  renderRunInfo(el, {
-    owner: params.owner,
-    repo: params.repo,
-    runId: params.runId,
-    workflow: getWorkflowName() || 'Deploy (PRD)',
-  });
+  const workflow = getWorkflowName() || 'Deploy (PRD)';
+  currentMeta = { owner: params.owner, repo: params.repo, runId: params.runId, workflow };
+  renderRunInfo(el, currentMeta);
   log(`Ready — ${params.owner}/${params.repo} run #${params.runId}`);
-  if (config.saveLog) restoreLogsToPanel(el);
+  restoreLogsToPanel(el);
   currentRunId = params.runId;
 
   runVersionCheck();
@@ -252,6 +390,7 @@ function teardownPanel(): void {
     el = null;
   }
   currentRunId = null;
+  currentMeta = null;
 }
 
 async function runVersionCheck(): Promise<void> {
@@ -296,6 +435,7 @@ function checkPage(): void {
 
   if (!onTarget) {
     if (el) teardownPanel();
+    mountOverviewWidget(false);
     return;
   }
 
@@ -304,6 +444,7 @@ function checkPage(): void {
     if (el) teardownPanel();
     buildPanelFor(params!);
   }
+  mountOverviewWidget(true);
 }
 
 // Initial + repeated checks (page may load Deploy (PRD) header after document-idle)

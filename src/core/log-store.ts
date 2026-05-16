@@ -4,16 +4,10 @@
 
 let _logBuffer: string[] = [];
 let _logFlushTimer: ReturnType<typeof setTimeout> | null = null;
-let _saveLog = false;
 let _logStoreKey = '';
 
-export function initLogStore(runId: string, saveLog: boolean): void {
+export function initLogStore(runId: string): void {
   _logStoreKey = `aad_log_${runId}`;
-  _saveLog = saveLog;
-}
-
-export function setLogSaving(enabled: boolean): void {
-  _saveLog = enabled;
 }
 
 function _flushLogBuffer(): void {
@@ -29,7 +23,7 @@ function _flushLogBuffer(): void {
 }
 
 export function appendLogToStore(line: string): void {
-  if (!_saveLog) return;
+  if (!_logStoreKey) return;
   _logBuffer.push(line);
   if (_logBuffer.length >= 20) {
     _flushLogBuffer();
