@@ -79,17 +79,26 @@ For every doc below, decide if it is **STALE** (needs update) or **OK** (still a
 | Doc state | Action |
 |---|---|
 | All docs OK | Proceed to Phase 4 with just the code commit |
-| Doc(s) STALE but tiny tweak (≤ a few lines) | Bundle into the same commit (note in body) |
-| Doc(s) STALE and substantive | Either: (a) ask user "update docs first?" — recommended; or (b) commit code now and emit a follow-up `docs:` commit with the doc updates |
+| Doc(s) STALE but tiny tweak (≤ a few lines) | Update docs and bundle into the same commit (note in body) |
+| Doc(s) STALE and substantive | **MUST ask the user** before continuing — see 3d |
 
-**Default behavior:** If docs are stale, ask the user **once** whether to update docs in the same PR/commit cycle. Do not silently skip.
+### 3d. MANDATORY user prompt when docs are stale
 
-### 3d. Report
+If any doc is STALE, the agent **must pause** and ask the user via an interactive question (e.g. `vscode_askQuestions`) before drafting any commit. The question must list which docs are stale and offer these options:
+
+- **A. Update docs now, then commit everything together** (recommended for substantive changes)
+- **B. Commit the src changes now and create a follow-up `docs:` commit immediately after**
+- **C. Commit src changes only; skip doc updates for now** (records a `TODO docs:` note in the commit body)
+
+Do **not** silently pick an option. Do **not** defer the question to after committing. The whole point of Phase 3 is to surface this decision *before* the commit, so the user can choose.
+
+### 3e. Report
 
 In the commit plan presented in Phase 4, include a line like:
 - `Docs check: ✅ all up to date` — OR —
-- `Docs check: ⚠ README.md needs update (new pause button) — bundling into commit` — OR —
-- `Docs check: ⚠ copilot-instructions.md needs update — follow-up docs commit planned`
+- `Docs check: ⚠ README.md needs update (new pause button) — user chose A: updating now` — OR —
+- `Docs check: ⚠ copilot-instructions.md needs update — user chose B: follow-up docs commit planned` — OR —
+- `Docs check: ⚠ README.md needs update — user chose C: deferred (TODO recorded in commit body)`
 
 ---
 
