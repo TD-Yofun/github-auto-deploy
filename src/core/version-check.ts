@@ -11,11 +11,13 @@ export interface VersionCheckResult {
   latest: string;
   outdated: boolean;
   releaseUrl: string;
+  releaseNotes: string;
 }
 
 interface CachedVersion {
   latest: string;
   releaseUrl: string;
+  releaseNotes: string;
   ts: number;
 }
 
@@ -35,6 +37,7 @@ export async function checkLatestVersion(current: string): Promise<VersionCheckR
       latest: cached.latest,
       outdated: isNewer(cached.latest, current),
       releaseUrl: cached.releaseUrl,
+      releaseNotes: cached.releaseNotes,
     };
   }
 
@@ -49,19 +52,21 @@ export async function checkLatestVersion(current: string): Promise<VersionCheckR
             const data = JSON.parse(r.responseText);
             const latest = String(data.tag_name || '').replace(/^v/, '');
             const releaseUrl = data.html_url || `https://github.com/${REPO}/releases/latest`;
-            writeCache({ latest, releaseUrl, ts: Date.now() });
+            const releaseNotes = String(data.body || '').trim();
+            writeCache({ latest, releaseUrl, releaseNotes, ts: Date.now() });
             resolve({
               current,
               latest,
               outdated: isNewer(latest, current),
               releaseUrl,
+              releaseNotes,
             });
           } catch {
             reject(new Error('Failed to parse latest release'));
           }
         } else if (r.status === 404) {
           // No releases yet — treat as up-to-date
-          resolve({ current, latest: current, outdated: false, releaseUrl: `https://github.com/${REPO}/releases` });
+          resolve({ current, latest: current, outdated: false, releaseUrl: `https://github.com/${REPO}/releases`, releaseNotes: '' });
         } else {
           reject(new Error(`HTTP ${r.status}`));
         }

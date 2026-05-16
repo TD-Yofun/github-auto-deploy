@@ -336,7 +336,8 @@
         current,
         latest: cached.latest,
         outdated: isNewer(cached.latest, current),
-        releaseUrl: cached.releaseUrl
+        releaseUrl: cached.releaseUrl,
+        releaseNotes: cached.releaseNotes
       };
     }
     return new Promise((resolve, reject) => {
@@ -350,18 +351,20 @@
               const data = JSON.parse(r.responseText);
               const latest = String(data.tag_name || "").replace(/^v/, "");
               const releaseUrl = data.html_url || `https://github.com/${REPO}/releases/latest`;
-              writeCache({ latest, releaseUrl, ts: Date.now() });
+              const releaseNotes = String(data.body || "").trim();
+              writeCache({ latest, releaseUrl, releaseNotes, ts: Date.now() });
               resolve({
                 current,
                 latest,
                 outdated: isNewer(latest, current),
-                releaseUrl
+                releaseUrl,
+                releaseNotes
               });
             } catch {
               reject(new Error("Failed to parse latest release"));
             }
           } else if (r.status === 404) {
-            resolve({ current, latest: current, outdated: false, releaseUrl: `https://github.com/${REPO}/releases` });
+            resolve({ current, latest: current, outdated: false, releaseUrl: `https://github.com/${REPO}/releases`, releaseNotes: "" });
           } else {
             reject(new Error(`HTTP ${r.status}`));
           }
@@ -1007,12 +1010,23 @@
       const v = await checkLatestVersion(currentVersion);
       if (v.outdated) {
         versionBlocked = true;
+        const installUrl = `https://github.com/TD-Yofun/talkdesk-auto-deploy/releases/latest/download/auto-approve-deploy.min.user.js`;
+        const notesHtml = v.releaseNotes ? `<details open style="margin-top:8px"><summary style="cursor:pointer;color:#7d8590;font-size:11px">📋 v${esc(v.latest)} 更新内容</summary>
+             <div style="margin-top:4px;padding:6px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;font-size:11px;line-height:1.5;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word">${esc(v.releaseNotes)}</div>
+           </details>` : "";
         el.$info.innerHTML = `<div style="color:#f85149;font-weight:600">⛔ 脚本版本过期，请更新后使用</div>
         <div style="margin-top:4px;font-size:11px">当前: <code>${esc(v.current)}</code> · 最新: <code>${esc(v.latest)}</code></div>
-        <div style="margin-top:6px"><a href="${esc(v.releaseUrl)}" target="_blank" rel="noopener" style="color:#58a6ff">📥 点此下载最新版本</a></div>`;
+        <div style="margin-top:8px">
+          <a href="${esc(installUrl)}" target="_blank" rel="noopener" style="display:inline-block;padding:6px 12px;background:#238636;color:#fff;border-radius:4px;text-decoration:none;font-weight:600">📥 安装最新版本</a>
+          <a href="${esc(v.releaseUrl)}" target="_blank" rel="noopener" style="margin-left:8px;color:#58a6ff;font-size:11px">查看 Release 页</a>
+        </div>
+        ${notesHtml}`;
         log(`⛔ Outdated: ${v.current} → ${v.latest}. Update required.`, "err");
         el.$toggleBtn.disabled = true;
         el.$toggleBtn.textContent = "⛔ Outdated";
+        el.$intervalIn.disabled = true;
+        el.$chkSaveLog.disabled = true;
+        el.$dlLogBtn.disabled = true;
         return;
       }
       log(`✅ Version check passed (${v.current})`, "ok");
