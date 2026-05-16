@@ -54,5 +54,5 @@ jobs:
           name: ${{ github.ref_name }}
           body: ${{ steps.notes.outputs.notes }}
           files: |
-            auto-approve-deploy.user.js
-            auto-approve-deploy.min.user.js
+            build/auto-approve-deploy.user.js
+            build/auto-approve-deploy.min.user.js

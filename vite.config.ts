@@ -88,7 +88,7 @@ export default defineConfig(({ mode }) => {
       ...(isProd ? [minifyTemplateStrings()] : []),
     ],
     build: {
-      outDir: '.',
+      outDir: 'build',
       emptyOutDir: false,
       minify: isProd ? 'esbuild' : false,
     },

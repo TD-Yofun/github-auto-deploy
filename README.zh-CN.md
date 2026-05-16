@@ -6,7 +6,7 @@
 
 **无需 GitHub Token。** 脚本通过 DOM 检测 break-glass 按钮，并基于你浏览器现有的登录会话点过确认弹窗。
 
-使用 **Vite + TypeScript** 构建，产出 `auto-approve-deploy.user.js`（开发版）和 `auto-approve-deploy.min.user.js`（压缩版）两个打包后的 userscript。
+使用 **Vite + TypeScript** 构建，产出 `build/auto-approve-deploy.user.js`（开发版）和 `build/auto-approve-deploy.min.user.js`（压缩版）两个打包后的 userscript。`build/` 目录已被 gitignore —— 构建产物由 CI 生成并发布到 GitHub Releases。
 
 ## 功能特性
 
@@ -181,8 +181,8 @@ src/
 
 | 文件 | 说明 |
 |------|------|
-| `auto-approve-deploy.user.js` | 开发版 —— 未压缩，可读 |
-| `auto-approve-deploy.min.user.js` | 生产版 —— JS 压缩 + CSS/HTML 模板压缩 |
+| `build/auto-approve-deploy.user.js` | 开发版 —— 未压缩，可读（gitignored）|
+| `build/auto-approve-deploy.min.user.js` | 生产版 —— JS 压缩 + CSS/HTML 模板压缩（gitignored）|
 
 ### 发布流程
 

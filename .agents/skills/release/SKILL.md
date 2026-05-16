@@ -153,7 +153,7 @@ Report the release URL to the user.
 - **No conventional commits since last tag**: release-it still works but the `CHANGELOG.md` section will be empty. Warn the user and ask whether the release is still meaningful.
 - **Build fails during `after:bump`**: release-it aborts before tagging. Report the failure, fix the build, then ask before re-running.
 - **Tag already exists locally**: indicates a previous incomplete release. **Never delete tags automatically.** Show the user the local + remote tag state and ask before running `git tag -d v<x.y.z>` (and `git push --delete origin v<x.y.z>` if remote).
-- **Tag pushed but CI failed**: tag is on remote, no Release exists. Either re-run the workflow (`gh run rerun <id>`) or create the Release manually with `gh release create v<x.y.z> --notes-file <notes> auto-approve-deploy.user.js auto-approve-deploy.min.user.js`. Do not delete and re-tag.
+- **Tag pushed but CI failed**: tag is on remote, no Release exists. Either re-run the workflow (`gh run rerun <id>`) or build locally (`npm run build`) and create the Release manually with `gh release create v<x.y.z> --notes-file <notes> build/auto-approve-deploy.user.js build/auto-approve-deploy.min.user.js`. Do not delete and re-tag.
 - **First release**: no prior tag exists. release-it uses `package.json` version as the base; ask the user what initial version to publish.
 - **Hotfix on non-main branch**: not supported by current config (`requireBranch: main`). Abort and instruct user to merge to main first.
 - **Working tree dirty / unrelated unpushed commits**: stop and ask the user how to handle them — never stash/discard without confirmation.

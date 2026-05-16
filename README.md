@@ -6,7 +6,7 @@ A Tampermonkey userscript that automatically clicks **"Start all waiting jobs"**
 
 **No GitHub token required.** The script detects the break-glass button via DOM and clicks through the confirmation dialog using your existing browser session.
 
-Built with **Vite + TypeScript**, outputs `auto-approve-deploy.user.js` (dev) and `auto-approve-deploy.min.user.js` (minified) as bundled userscripts.
+Built with **Vite + TypeScript**, outputs `build/auto-approve-deploy.user.js` (dev) and `build/auto-approve-deploy.min.user.js` (minified) as bundled userscripts. The `build/` folder is gitignored — artifacts are produced by CI and published to GitHub Releases.
 
 ## Features
 
@@ -184,8 +184,8 @@ src/
 
 | File | Description |
 |------|-------------|
-| `auto-approve-deploy.user.js` | Dev build — unminified, readable |
-| `auto-approve-deploy.min.user.js` | Prod build — minified JS + compressed CSS/HTML templates |
+| `build/auto-approve-deploy.user.js` | Dev build — unminified, readable (gitignored) |
+| `build/auto-approve-deploy.min.user.js` | Prod build — minified JS + compressed CSS/HTML templates (gitignored) |
 
 ### Release Flow
 
