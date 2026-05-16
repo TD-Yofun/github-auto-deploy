@@ -103,16 +103,22 @@ Use `--ci` to skip interactive prompts only when the user has already chosen the
 
 ### Behind an HTTP proxy (octokit cannot reach api.github.com)
 
-release-it's octokit ignores lowercase `http_proxy` and `--github.proxy` is broken in recent versions. Fallback (still confirm with user before running):
+release-it uses **octokit** (GitHub's JS SDK) for the `repos.createRelease` and `repos.uploadReleaseAssets` steps. octokit goes through Node's `fetch`/`undici`, which **does not honour `http_proxy` / `https_proxy` environment variables**, and release-it's `--github.proxy` option is broken in recent octokit versions. Symptom: every step works (bump, build, commit, tag, push via system `git`) until the GitHub API call fails with `Could not authenticate with GitHub using environment variable "GITHUB_TOKEN"` — the token is fine; the request never reached api.github.com.
+
+`gh` CLI is a Go binary and respects system proxy settings, so the workaround is to let release-it do everything except the GitHub Release, then create the Release manually with `gh`. Confirm with the user before running:
 
 ```
+# 1. release-it: bump / build / commit / tag / push — skip GitHub Release upload
 npm run release -- <bump> --ci --github.skipChecks
-# release-it bumps/builds/commits/tags/pushes; the GitHub Release step is skipped
+
+# 2. Create the GitHub Release + upload assets via gh (uses system proxy)
 gh release create v<x.y.z> \
   --title v<x.y.z> \
   --notes-file <(awk '/^## /{c++; if(c==2) exit} c==1' CHANGELOG.md) \
   auto-approve-deploy.user.js auto-approve-deploy.min.user.js
 ```
+
+If the previous `npm run release` already pushed the tag before failing on the octokit step, the local repo and remote are already in the correct state — just run step 2 alone (no need to re-bump).
 
 ---
 
