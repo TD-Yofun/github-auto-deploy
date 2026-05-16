@@ -11,11 +11,15 @@
 // @match        https://github.com/*
 // @connect      api.github.com
 // @grant        GM_addStyle
+// @grant        GM_deleteValue
 // @grant        GM_getValue
 // @grant        GM_info
+// @grant        GM_listValues
+// @grant        GM_notification
 // @grant        GM_registerMenuCommand
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
+// @grant        window.focus
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -61,9 +65,11 @@
     };
     GM_setValue(keyMap[key], value);
   }
+  const WATCHDOG_TIMEOUT_MS = 10 * 60 * 1e3;
   function createState() {
     return {
       running: false,
+      paused: false,
       pollTimer: null,
       startRunId: null,
       sessionApproved: 0,
@@ -72,19 +78,15 @@
       monitorStartedAt: 0,
       pollCycle: 0,
       sessionSkipped: 0,
-      sessionEvents: []
+      sessionEvents: [],
+      lastProgressAt: 0
     };
   }
   let _logBuffer = [];
   let _logFlushTimer = null;
-  let _saveLog = false;
   let _logStoreKey = "";
-  function initLogStore(runId, saveLog) {
+  function initLogStore(runId) {
     _logStoreKey = `aad_log_${runId}`;
-    _saveLog = saveLog;
-  }
-  function setLogSaving(enabled) {
-    _saveLog = enabled;
   }
   function _flushLogBuffer() {
     if (_logBuffer.length === 0) return;
@@ -96,7 +98,7 @@
     _logBuffer = [];
   }
   function appendLogToStore(line) {
-    if (!_saveLog) return;
+    if (!_logStoreKey) return;
     _logBuffer.push(line);
     if (_logBuffer.length >= 20) {
       _flushLogBuffer();
@@ -145,7 +147,8 @@
       events: state2.sessionEvents,
       startedAt: state2.monitorStartedAt,
       pollCycle: state2.pollCycle,
-      lastSkipKey: state2.lastSkipKey
+      lastSkipKey: state2.lastSkipKey,
+      lastProgressAt: state2.lastProgressAt
     });
   }
   function loadSession(runId, state2) {
@@ -158,11 +161,50 @@
     state2.monitorStartedAt = s.startedAt || Date.now();
     state2.pollCycle = s.pollCycle || 0;
     state2.lastSkipKey = s.lastSkipKey || "";
+    state2.lastProgressAt = s.lastProgressAt || 0;
     return true;
   }
   function clearSession(runId) {
     const sessionKey = `aad_session_${runId}`;
     GM_setValue(sessionKey, null);
+  }
+  let worker = null;
+  let fallbackTimer = null;
+  let currentCb = null;
+  function createWorker() {
+    try {
+      const src = `let t=null;self.onmessage=(e)=>{const d=e.data;if(d&&d.type==='start'){if(t)clearTimeout(t);t=setTimeout(()=>self.postMessage('tick'),d.ms);}else if(d&&d.type==='stop'){if(t)clearTimeout(t);t=null;}};`;
+      const blob = new Blob([src], { type: "application/javascript" });
+      const url = URL.createObjectURL(blob);
+      const w = new Worker(url);
+      URL.revokeObjectURL(url);
+      return w;
+    } catch {
+      return null;
+    }
+  }
+  function scheduleTick(cb, ms) {
+    currentCb = cb;
+    if (!worker) worker = createWorker();
+    if (worker) {
+      worker.onmessage = () => {
+        if (currentCb) currentCb();
+      };
+      worker.postMessage({ type: "start", ms });
+    } else {
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+      fallbackTimer = setTimeout(() => {
+        if (currentCb) currentCb();
+      }, ms);
+    }
+  }
+  function cancelTick() {
+    currentCb = null;
+    if (worker) worker.postMessage({ type: "stop" });
+    if (fallbackTimer) {
+      clearTimeout(fallbackTimer);
+      fallbackTimer = null;
+    }
   }
   function observeSkipButton(onDetected) {
     const check = (el2) => /start all waiting/i.test(el2.textContent || "");
@@ -409,6 +451,16 @@
     d.textContent = s;
     return d.innerHTML;
   }
+  function formatDuration(ms) {
+    const secs = Math.floor(ms / 1e3);
+    if (secs < 60) return `${secs}s`;
+    const mins = Math.floor(secs / 60);
+    const remSecs = secs % 60;
+    if (mins < 60) return `${mins}m ${remSecs}s`;
+    const hours = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    return `${hours}h ${remMins}m`;
+  }
   function injectStyles() {
     GM_addStyle(`
     /* ── Side Panel ───────────────────────────────────────── */
@@ -542,6 +594,18 @@
     #aad-toggle-btn.start:hover { background: #2ea043; }
     #aad-toggle-btn.stop  { background: #da3633; }
     #aad-toggle-btn.stop:hover  { background: #f85149; }
+    #aad-pause-btn {
+      padding: 5px 12px;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      background: #21262d;
+      color: #e6edf3;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #aad-pause-btn:hover { background: #30363d; }
+    #aad-pause-btn[hidden] { display: none !important; }
     #aad-controls label {
       display: flex;
       align-items: center;
@@ -617,7 +681,25 @@
       font-size: 13px;
       margin-bottom: 8px;
       color: #e6edf3;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
+    .aad-summary-header .aad-summary-actions {
+      display: flex;
+      gap: 6px;
+    }
+    .aad-summary-header button {
+      background: #21262d;
+      border: 1px solid #30363d;
+      color: #e6edf3;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .aad-summary-header button:hover { background: #30363d; }
+    .aad-summary-header button.aad-copied { background: #238636; border-color: #2ea043; }
     .aad-summary-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -655,6 +737,60 @@
     .aad-log-ok    { color: #3fb950; }
     .aad-log-warn  { color: #d29922; }
     .aad-log-err   { color: #f85149; }
+
+    /* ── Overview Widget (Actions list pages) ─────────────── */
+    #aad-overview {
+      position: fixed !important;
+      bottom: 16px; right: 16px;
+      width: 320px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 12px;
+      z-index: 2147483646 !important;
+      box-shadow: 0 4px 16px rgba(0,0,0,.4);
+      overflow: hidden;
+    }
+    #aad-overview .aad-ov-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #0d1117;
+      border-bottom: 1px solid #30363d;
+      font-weight: 600;
+    }
+    #aad-overview .aad-ov-close {
+      background: none; border: none; color: #8b949e; cursor: pointer;
+      font-size: 16px; line-height: 1; padding: 0 4px;
+    }
+    #aad-overview .aad-ov-close:hover { color: #e6edf3; }
+    #aad-overview .aad-ov-body {
+      max-height: 240px;
+      overflow-y: auto;
+      padding: 4px 0;
+    }
+    #aad-overview .aad-ov-item {
+      padding: 6px 12px;
+      border-bottom: 1px solid #21262d;
+    }
+    #aad-overview .aad-ov-item:last-child { border-bottom: none; }
+    #aad-overview .aad-ov-link {
+      color: #58a6ff;
+      text-decoration: none;
+      display: block;
+      font-size: 12px;
+      word-break: break-all;
+    }
+    #aad-overview .aad-ov-link:hover { text-decoration: underline; }
+    #aad-overview .aad-ov-meta {
+      display: block;
+      margin-top: 2px;
+      color: #8b949e;
+      font-size: 11px;
+    }
   `);
   }
   function buildUI(runId, config2) {
@@ -671,6 +807,7 @@
       <div id="aad-info">Loading run info...</div>
       <div id="aad-controls">
         <button id="aad-toggle-btn" class="start">▶ Start</button>
+        <button id="aad-pause-btn" hidden>⏸ Pause</button>
         <div id="aad-interval-wrap">
           ⏱ <input id="aad-interval-input" type="number" min="5" max="300" value="${config2.interval}">s
         </div>
@@ -698,6 +835,7 @@
       tab,
       $info: document.getElementById("aad-info"),
       $toggleBtn: document.getElementById("aad-toggle-btn"),
+      $pauseBtn: document.getElementById("aad-pause-btn"),
       $intervalIn: document.getElementById("aad-interval-input"),
       $chkSaveLog: document.getElementById("aad-chk-savelog"),
       $dlLogBtn: document.getElementById("aad-dl-log-btn"),
@@ -732,14 +870,17 @@
     Run: <a href="/${esc(info.owner)}/${esc(info.repo)}/actions/runs/${esc(info.runId)}" style="color:#58a6ff">#${esc(info.runId)}</a>
   `;
   }
-  function renderToggle(el2, running) {
+  function renderToggle(el2, running, paused = false) {
     if (running) {
       el2.$toggleBtn.textContent = "⏹ Stop";
       el2.$toggleBtn.className = "stop";
+      el2.$pauseBtn.hidden = false;
+      el2.$pauseBtn.textContent = paused ? "▶ Resume" : "⏸ Pause";
       setControlsEnabled(el2, false);
     } else {
       el2.$toggleBtn.textContent = "▶ Start";
       el2.$toggleBtn.className = "start";
+      el2.$pauseBtn.hidden = true;
       setControlsEnabled(el2, true);
     }
   }
@@ -790,6 +931,99 @@
     el2.$log.appendChild(sep2);
     el2.$log.scrollTop = el2.$log.scrollHeight;
   }
+  function summaryToMarkdown(state2, config2, conclusion, info) {
+    const duration = Date.now() - state2.monitorStartedAt;
+    const head = (info == null ? void 0 : info.workflow) ? `## 📊 ${info.workflow} — Run #${info.runId || ""}` : `## 📊 执行报告`;
+    const where = (info == null ? void 0 : info.owner) && (info == null ? void 0 : info.repo) ? `
+**Repository:** ${info.owner}/${info.repo}` + (info.runId ? `  
+**Run:** [#${info.runId}](https://github.com/${info.owner}/${info.repo}/actions/runs/${info.runId})` : "") : "";
+    const lines = [
+      head,
+      where,
+      "",
+      `- **结果:** ${conclusion}`,
+      `- **总耗时:** ${formatDuration(duration)}`,
+      `- **轮询次数:** ${state2.pollCycle}`,
+      `- **审批通过:** ${state2.sessionApproved}`,
+      `- **跳过计时器:** ${state2.sessionSkipped}`,
+      `- **轮询间隔:** ${config2.interval}s`,
+      `- **开始时间:** ${new Date(state2.monitorStartedAt).toLocaleString()}`
+    ];
+    if (state2.sessionEvents.length > 0) {
+      lines.push("", "### 📋 执行时间线", "");
+      state2.sessionEvents.forEach((ev) => {
+        const t = new Date(ev.ts).toLocaleTimeString("en-US", { hour12: false });
+        const icon = ev.type === "approve" ? "✅" : ev.type === "skip" ? "⏭" : ev.type === "error" ? "❌" : ev.type === "start" ? "🚀" : ev.type === "resume" ? "🔄" : ev.type === "complete" ? "🏁" : "📌";
+        lines.push(`- \`${t}\` ${icon} ${ev.detail}`);
+      });
+    }
+    return lines.join("\n") + "\n";
+  }
+  function generateSummary(el2, state2, config2, conclusion, info) {
+    const duration = Date.now() - state2.monitorStartedAt;
+    const timelineHtml = state2.sessionEvents.map((ev) => {
+      const t = new Date(ev.ts).toLocaleTimeString("en-US", { hour12: false });
+      const icon = ev.type === "approve" ? "✅" : ev.type === "skip" ? "⏭" : ev.type === "error" ? "❌" : ev.type === "start" ? "🚀" : ev.type === "resume" ? "🔄" : ev.type === "complete" ? "🏁" : "📌";
+      return `<div class="aad-timeline-item"><span class="aad-log-time">${t}</span> ${icon} ${esc(ev.detail)}</div>`;
+    }).join("");
+    const ok = conclusion === "success";
+    const statusIcon = ok ? "✅" : "❌";
+    const statusClass = ok ? "aad-log-ok" : "aad-log-err";
+    el2.$summary.innerHTML = `
+    <div class="aad-summary-header">
+      <span>📊 执行报告</span>
+      <span class="aad-summary-actions">
+        <button id="aad-copy-summary-btn" title="复制为 Markdown">📋 Copy MD</button>
+      </span>
+    </div>
+    <div class="aad-summary-grid">
+      <div class="aad-summary-item">
+        <span class="aad-summary-label">结果</span>
+        <span class="${statusClass}">${statusIcon} ${esc(conclusion)}</span>
+      </div>
+      <div class="aad-summary-item">
+        <span class="aad-summary-label">总耗时</span>
+        <span>${formatDuration(duration)}</span>
+      </div>
+      <div class="aad-summary-item">
+        <span class="aad-summary-label">轮询次数</span>
+        <span>${state2.pollCycle}</span>
+      </div>
+      <div class="aad-summary-item">
+        <span class="aad-summary-label">审批通过</span>
+        <span class="aad-log-ok">${state2.sessionApproved}</span>
+      </div>
+      <div class="aad-summary-item">
+        <span class="aad-summary-label">跳过计时器</span>
+        <span>${state2.sessionSkipped}</span>
+      </div>
+      <div class="aad-summary-item">
+        <span class="aad-summary-label">轮询间隔</span>
+        <span>${config2.interval}s</span>
+      </div>
+    </div>
+    ${state2.sessionEvents.length > 0 ? `
+      <div class="aad-summary-header" style="margin-top:8px"><span>📋 执行时间线</span></div>
+      <div class="aad-timeline">${timelineHtml}</div>
+    ` : ""}
+  `;
+    el2.$summary.style.display = "block";
+    const copyBtn = el2.$summary.querySelector("#aad-copy-summary-btn");
+    copyBtn == null ? void 0 : copyBtn.addEventListener("click", async () => {
+      const md = summaryToMarkdown(state2, config2, conclusion, info);
+      try {
+        await navigator.clipboard.writeText(md);
+        copyBtn.textContent = "✓ Copied!";
+        copyBtn.classList.add("aad-copied");
+        setTimeout(() => {
+          copyBtn.textContent = "📋 Copy MD";
+          copyBtn.classList.remove("aad-copied");
+        }, 1500);
+      } catch {
+        window.prompt("复制以下 Markdown:", md);
+      }
+    });
+  }
   function setControlsEnabled(el2, enabled) {
     const checkboxes = [el2.$chkSaveLog];
     checkboxes.forEach((cb) => {
@@ -803,15 +1037,114 @@
     el2.$dlLogBtn.disabled = !enabled;
     el2.$dlLogBtn.classList.toggle("aad-disabled", !enabled);
   }
+  const STALE_MS = 30 * 60 * 1e3;
+  const WIDGET_ID = "aad-overview";
+  function listActiveRuns() {
+    if (typeof GM_listValues !== "function") return [];
+    const now = Date.now();
+    const out = [];
+    for (const key of GM_listValues()) {
+      if (!key.startsWith("aad_running_")) continue;
+      const ts2 = GM_getValue(key, 0);
+      if (!ts2 || now - ts2 > STALE_MS) continue;
+      const runId = key.slice("aad_running_".length);
+      const session = GM_getValue(`aad_session_${runId}`, null);
+      const meta = GM_getValue(`aad_meta_${runId}`, null);
+      out.push({
+        runId,
+        startedAt: (session == null ? void 0 : session.startedAt) || ts2,
+        approved: (session == null ? void 0 : session.approved) || 0,
+        url: meta == null ? void 0 : meta.url,
+        owner: meta == null ? void 0 : meta.owner,
+        repo: meta == null ? void 0 : meta.repo,
+        workflow: meta == null ? void 0 : meta.workflow
+      });
+    }
+    return out.sort((a, b) => b.startedAt - a.startedAt);
+  }
+  function saveRunMeta(runId, meta) {
+    GM_setValue(`aad_meta_${runId}`, {
+      ...meta,
+      url: `https://github.com/${meta.owner}/${meta.repo}/actions/runs/${runId}`
+    });
+  }
+  function renderWidget(runs) {
+    var _a;
+    let widget = document.getElementById(WIDGET_ID);
+    if (runs.length === 0) {
+      if (widget) widget.remove();
+      return;
+    }
+    if (!widget) {
+      widget = document.createElement("div");
+      widget.id = WIDGET_ID;
+      document.body.appendChild(widget);
+    }
+    const now = Date.now();
+    const items = runs.map((r) => {
+      const elapsed = formatDuration(now - r.startedAt);
+      const label = r.workflow && r.owner && r.repo ? `${esc(r.owner)}/${esc(r.repo)} · ${esc(r.workflow)} #${esc(r.runId)}` : `Run #${esc(r.runId)}`;
+      const href = r.url || `#`;
+      return `<div class="aad-ov-item">
+      <a href="${esc(href)}" class="aad-ov-link">${label}</a>
+      <span class="aad-ov-meta">⏱ ${elapsed} · ✅ ${r.approved || 0}</span>
+    </div>`;
+    }).join("");
+    widget.innerHTML = `
+    <div class="aad-ov-header">
+      <span>🚀 AAD · ${runs.length} active</span>
+      <button class="aad-ov-close" title="Hide">×</button>
+    </div>
+    <div class="aad-ov-body">${items}</div>
+  `;
+    (_a = widget.querySelector(".aad-ov-close")) == null ? void 0 : _a.addEventListener("click", () => widget.remove());
+  }
+  let refreshTimer = null;
+  function mountOverviewWidget(isOnRunPage) {
+    var _a;
+    if (isOnRunPage) {
+      (_a = document.getElementById(WIDGET_ID)) == null ? void 0 : _a.remove();
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+      }
+      return;
+    }
+    const tick = () => renderWidget(listActiveRuns());
+    tick();
+    if (!refreshTimer) refreshTimer = setInterval(tick, 5e3);
+  }
+  function clearRunMeta(runId) {
+    if (typeof GM_deleteValue === "function") GM_deleteValue(`aad_meta_${runId}`);
+  }
   const config = loadConfig();
   const state = createState();
   injectStyles();
   let el = null;
   let currentRunId = null;
+  let currentMeta = null;
   let skipInProgress = false;
   let skipCooldownUntil = 0;
   let versionBlocked = false;
   let disconnectSkipObserver = null;
+  window.addEventListener("error", (e) => {
+    var _a;
+    const msg = ((_a = e.error) == null ? void 0 : _a.stack) || e.message || String(e);
+    if (/aad|auto[-_]?approve/i.test(msg) || (e.filename || "").includes("user.js")) {
+      log(`💥 Uncaught error: ${msg.slice(0, 300)}`, "err");
+    }
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    var _a, _b;
+    const reason = ((_a = e.reason) == null ? void 0 : _a.stack) || ((_b = e.reason) == null ? void 0 : _b.message) || String(e.reason);
+    log(`💥 Unhandled rejection: ${String(reason).slice(0, 300)}`, "err");
+  });
+  window.addEventListener("pageshow", (e) => {
+    if (e.persisted) {
+      log("🔄 Page restored from bfcache — re-checking");
+      setTimeout(checkPage, 200);
+    }
+  });
   function log(msg, level) {
     if (el) addLog(el, msg, level);
     else console.log(`[AAD] ${msg}`);
@@ -838,7 +1171,7 @@
     return false;
   }
   async function handleSkipDetected() {
-    if (skipInProgress || !state.running) return;
+    if (skipInProgress || !state.running || state.paused) return;
     if (Date.now() < skipCooldownUntil) return;
     if (!abortIfDrifted()) return;
     skipInProgress = true;
@@ -853,6 +1186,7 @@
         state.sessionApproved++;
         state.sessionSkipped++;
         state.totalApproved++;
+        state.lastProgressAt = Date.now();
         recordEvent("approve", 'Clicked "Start all waiting jobs"');
         if (el) renderCounters(el, state);
         saveSession(state.startRunId, state);
@@ -880,9 +1214,28 @@
   }
   async function poll() {
     if (!state.running) return;
+    if (state.paused) {
+      scheduleTick(poll, config.interval * 1e3);
+      return;
+    }
     if (!abortIfDrifted()) return;
     state.pollCycle++;
     saveRunningState(state.startRunId, true);
+    const conclusion = readRunConclusion();
+    if (isTerminalConclusion(conclusion)) {
+      log(`🏁 Workflow ${conclusion} — stopping and generating report`, "ok");
+      stop(false);
+      return;
+    }
+    if (state.lastProgressAt > 0 && Date.now() - state.lastProgressAt >= WATCHDOG_TIMEOUT_MS) {
+      const mins = Math.round(WATCHDOG_TIMEOUT_MS / 6e4);
+      log(`⏱️ Watchdog: no progress for ${mins} min — reloading page to recover...`, "warn");
+      recordEvent("error", `Watchdog reload after ${mins} min of no progress`);
+      saveSession(state.startRunId, state);
+      saveRunningState(state.startRunId, true);
+      setTimeout(() => location.reload(), 300);
+      return;
+    }
     const btnText = /start all waiting/i;
     const found = [...document.querySelectorAll(
       'button, [role="button"], summary'
@@ -894,7 +1247,7 @@
       if (el) setStatus(el, `🔄 Monitoring (cycle ${state.pollCycle})...`);
     }
     if (state.running) {
-      state.pollTimer = setTimeout(poll, config.interval * 1e3);
+      scheduleTick(poll, config.interval * 1e3);
     }
   }
   function start() {
@@ -908,6 +1261,7 @@
       return;
     }
     state.running = true;
+    state.paused = false;
     state.startRunId = cur.runId;
     state.sessionApproved = 0;
     state.sessionSkipped = 0;
@@ -915,12 +1269,14 @@
     state.lastSkipKey = "";
     state.pollCycle = 0;
     state.monitorStartedAt = Date.now();
+    state.lastProgressAt = Date.now();
     clearSession(cur.runId);
     saveRunningState(cur.runId, true);
+    if (currentMeta) saveRunMeta(cur.runId, currentMeta);
     if (el) el.$summary.style.display = "none";
     recordEvent("start", `Started on run #${cur.runId} (interval=${config.interval}s)`);
     log(`🚀 Started monitoring run #${cur.runId} (interval=${config.interval}s)`);
-    if (el) renderToggle(el, true);
+    if (el) renderToggle(el, true, false);
     startSkipObserver();
     poll();
   }
@@ -932,34 +1288,112 @@
     const cur = parseUrl();
     if (!cur) return;
     state.running = true;
+    state.paused = false;
     state.startRunId = cur.runId;
     loadSession(cur.runId, state);
+    if (!state.lastProgressAt) state.lastProgressAt = Date.now();
     saveRunningState(cur.runId, true);
+    if (currentMeta) saveRunMeta(cur.runId, currentMeta);
     if (el) el.$summary.style.display = "none";
     recordEvent("resume", `Resumed after page refresh`);
     log(`🚀 Resumed monitoring run #${cur.runId} (interval=${config.interval}s)`);
     if (el) {
-      renderToggle(el, true);
+      renderToggle(el, true, false);
       renderCounters(el, state);
     }
     startSkipObserver();
     poll();
   }
-  function stop() {
-    state.running = false;
-    if (state.startRunId) saveRunningState(state.startRunId, false);
+  function pauseMonitoring() {
+    if (!state.running || state.paused) return;
+    state.paused = true;
     stopSkipObserver();
-    if (state.pollTimer) {
-      clearTimeout(state.pollTimer);
-      state.pollTimer = null;
-    }
-    log(`⏹ Stopped (cycles=${state.pollCycle}, clicks=${state.sessionApproved})`);
+    cancelTick();
+    log("⏸ Paused — click Resume to continue", "warn");
     if (state.startRunId) saveSession(state.startRunId, state);
-    if (el) renderToggle(el, false);
+    if (el) {
+      renderToggle(el, true, true);
+      setStatus(el, "⏸ Paused");
+    }
+    scheduleTick(poll, config.interval * 1e3);
+  }
+  function resumeMonitoring() {
+    if (!state.running || !state.paused) return;
+    state.paused = false;
+    state.lastProgressAt = Date.now();
+    log("▶ Resumed", "ok");
+    if (el) renderToggle(el, true, false);
+    startSkipObserver();
+    poll();
+  }
+  function readRunConclusion() {
+    const svg = document.querySelector(
+      ".actions-workflow-runs-status svg[aria-label]"
+    );
+    const label = ((svg == null ? void 0 : svg.getAttribute("aria-label")) || "").toLowerCase();
+    if (label) {
+      if (/success/.test(label)) return "success";
+      if (/failure|failed/.test(label)) return "failure";
+      if (/cancel/.test(label)) return "cancelled";
+      if (/timed.?out/.test(label)) return "timed_out";
+      if (/skipped/.test(label)) return "skipped";
+      if (/action.?required/.test(label)) return "action_required";
+      if (/in progress|queued|waiting|pending|requested/.test(label)) return "in_progress";
+    }
+    const cls = (svg == null ? void 0 : svg.getAttribute("class")) || "";
+    if (/color-fg-success/.test(cls)) return "success";
+    if (/color-fg-danger/.test(cls)) return "failure";
+    if (/color-fg-muted/.test(cls)) return "cancelled";
+    return "";
+  }
+  function isTerminalConclusion(c) {
+    return c === "success" || c === "failure" || c === "cancelled" || c === "timed_out" || c === "skipped";
+  }
+  function stop(manual = true) {
+    state.running = false;
+    state.paused = false;
+    if (state.startRunId) saveRunningState(state.startRunId, false);
+    if (state.startRunId) clearRunMeta(state.startRunId);
+    stopSkipObserver();
+    cancelTick();
+    log(`⏹ Stopped (cycles=${state.pollCycle}, clicks=${state.sessionApproved})`);
+    const conclusion = readRunConclusion() || (manual ? "stopped" : "unknown");
+    recordEvent("complete", `Stopped — ${conclusion} (duration=${Math.round((Date.now() - state.monitorStartedAt) / 1e3)}s)`);
+    if (state.startRunId) saveSession(state.startRunId, state);
+    if (el) {
+      renderToggle(el, false);
+      generateSummary(el, state, config, conclusion, currentMeta || void 0);
+    }
+    notifyCompletion(conclusion, manual);
+  }
+  function notifyCompletion(conclusion, manual) {
+    if (manual && conclusion === "stopped") return;
+    try {
+      const icon = conclusion === "success" ? "✅" : conclusion === "failure" ? "❌" : conclusion === "cancelled" ? "⚠️" : "🏁";
+      const where = currentMeta ? `${currentMeta.owner}/${currentMeta.repo}` : "workflow";
+      const text = `Run #${(currentMeta == null ? void 0 : currentMeta.runId) || state.startRunId || ""} — ${conclusion}
+✅ ${state.sessionApproved} · ⏱ ${Math.round((Date.now() - state.monitorStartedAt) / 1e3)}s`;
+      GM_notification({
+        title: `${icon} AAD — ${where}`,
+        text,
+        timeout: 1e4,
+        onclick: () => {
+          try {
+            window.focus();
+          } catch {
+          }
+        }
+      });
+    } catch (e) {
+      log(`Notification failed: ${e.message}`, "warn");
+    }
   }
   function bindPanelEvents(panel, runId) {
     panel.$toggleBtn.addEventListener("click", () => {
       state.running ? stop() : start();
+    });
+    panel.$pauseBtn.addEventListener("click", () => {
+      state.paused ? resumeMonitoring() : pauseMonitoring();
     });
     panel.$intervalIn.addEventListener("change", () => {
       config.interval = Math.max(5, parseInt(panel.$intervalIn.value, 10) || 15);
@@ -969,24 +1403,20 @@
     panel.$chkSaveLog.addEventListener("change", () => {
       config.saveLog = panel.$chkSaveLog.checked;
       saveConfigField("saveLog", config.saveLog);
-      setLogSaving(config.saveLog);
       panel.$logPath.style.display = config.saveLog ? "block" : "none";
       log(config.saveLog ? `💾 日志记录已开启 — 文件: aad-run-${runId}.log` : "💾 日志记录已关闭", config.saveLog ? "ok" : "info");
     });
     panel.$dlLogBtn.addEventListener("click", () => downloadLog(runId));
   }
   function buildPanelFor(params) {
-    initLogStore(params.runId, config.saveLog);
+    initLogStore(params.runId);
     el = buildUI(params.runId, config);
     bindPanelEvents(el, params.runId);
-    renderRunInfo(el, {
-      owner: params.owner,
-      repo: params.repo,
-      runId: params.runId,
-      workflow: getWorkflowName() || "Deploy (PRD)"
-    });
+    const workflow = getWorkflowName() || "Deploy (PRD)";
+    currentMeta = { owner: params.owner, repo: params.repo, runId: params.runId, workflow };
+    renderRunInfo(el, currentMeta);
     log(`Ready — ${params.owner}/${params.repo} run #${params.runId}`);
-    if (config.saveLog) restoreLogsToPanel(el);
+    restoreLogsToPanel(el);
     currentRunId = params.runId;
     runVersionCheck();
     if (wasRunning(params.runId)) {
@@ -1002,6 +1432,7 @@
       el = null;
     }
     currentRunId = null;
+    currentMeta = null;
   }
   async function runVersionCheck() {
     if (!el) return;
@@ -1039,12 +1470,14 @@
     const onTarget = !!params && isDeployPRDPage();
     if (!onTarget) {
       if (el) teardownPanel();
+      mountOverviewWidget(false);
       return;
     }
     if (!el || currentRunId !== params.runId) {
       if (el) teardownPanel();
       buildPanelFor(params);
     }
+    mountOverviewWidget(true);
   }
   checkPage();
   let initialTries = 0;
