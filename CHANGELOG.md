@@ -1,5 +1,12 @@
 
 
+## [1.0.10](https://github.com/TD-Yofun/github-auto-deploy/compare/v1.0.9...v1.0.10) (2026-06-08)
+
+
+### Bug Fixes
+
+* update repo references from talkdesk-auto-deploy to github-auto-deploy ([537a6e6](https://github.com/TD-Yofun/github-auto-deploy/commit/537a6e687dc44cfd818b32763c9ae8a3f20369c6))
+
 ## [1.0.9](https://github.com/TD-Yofun/talkdesk-auto-deploy/compare/v1.0.8...v1.0.9) (2026-05-16)
 
 
