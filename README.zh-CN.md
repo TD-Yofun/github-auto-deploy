@@ -31,8 +31,8 @@
 1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 浏览器扩展
 2. 点击下方链接安装 userscript：
 
-   - **[auto-approve-deploy.min.user.js](https://github.com/TD-Yofun/talkdesk-auto-deploy/releases/latest/download/auto-approve-deploy.min.user.js)**（推荐）
-   - [auto-approve-deploy.user.js](https://github.com/TD-Yofun/talkdesk-auto-deploy/releases/latest/download/auto-approve-deploy.user.js)（未压缩，方便调试）
+   - **[auto-approve-deploy.min.user.js](https://github.com/TD-Yofun/github-auto-deploy/releases/latest/download/auto-approve-deploy.min.user.js)**（推荐）
+   - [auto-approve-deploy.user.js](https://github.com/TD-Yofun/github-auto-deploy/releases/latest/download/auto-approve-deploy.user.js)（未压缩，方便调试）
 
 3. 完成——无需 token、无需配置。
 

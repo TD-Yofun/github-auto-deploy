@@ -31,8 +31,8 @@ Built with **Vite + TypeScript**, outputs `build/auto-approve-deploy.user.js` (d
 1. Install [Tampermonkey](https://www.tampermonkey.net/) browser extension
 2. Click the link below to install the userscript:
 
-   - **[auto-approve-deploy.min.user.js](https://github.com/TD-Yofun/talkdesk-auto-deploy/releases/latest/download/auto-approve-deploy.min.user.js)** (recommended)
-   - [auto-approve-deploy.user.js](https://github.com/TD-Yofun/talkdesk-auto-deploy/releases/latest/download/auto-approve-deploy.user.js) (unminified, for debugging)
+   - **[auto-approve-deploy.min.user.js](https://github.com/TD-Yofun/github-auto-deploy/releases/latest/download/auto-approve-deploy.min.user.js)** (recommended)
+   - [auto-approve-deploy.user.js](https://github.com/TD-Yofun/github-auto-deploy/releases/latest/download/auto-approve-deploy.user.js) (unminified, for debugging)
 
 3. That's it — no token, no configuration required.
 

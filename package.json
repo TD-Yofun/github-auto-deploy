@@ -1,5 +1,5 @@
 {
-  "name": "talkdesk-auto-deploy",
+  "name": "github-auto-deploy",
   "version": "1.0.9",
   "private": true,
   "type": "module",

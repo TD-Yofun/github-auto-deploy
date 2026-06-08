@@ -497,7 +497,7 @@ async function runVersionCheck(): Promise<void> {
     const v = await checkLatestVersion(currentVersion);
     if (v.outdated) {
       versionBlocked = true;
-      const installUrl = `https://github.com/TD-Yofun/talkdesk-auto-deploy/releases/latest/download/auto-approve-deploy.min.user.js`;
+      const installUrl = `https://github.com/TD-Yofun/github-auto-deploy/releases/latest/download/auto-approve-deploy.min.user.js`;
       const notesHtml = v.releaseNotes
         ? `<details open style="margin-top:8px"><summary style="cursor:pointer;color:#7d8590;font-size:11px">📋 v${esc(v.latest)} 更新内容</summary>
              <div style="margin-top:4px;padding:6px 8px;background:#0d1117;border:1px solid #30363d;border-radius:4px;font-size:11px;line-height:1.5;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word">${esc(v.releaseNotes)}</div>

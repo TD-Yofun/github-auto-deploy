@@ -2,7 +2,7 @@
  * Version check — fetch latest release tag from GitHub and compare.
  * Caches result for 1 hour to avoid hitting the anonymous API rate limit.
  */
-const REPO = 'TD-Yofun/talkdesk-auto-deploy';
+const REPO = 'TD-Yofun/github-auto-deploy';
 const CACHE_KEY = 'aad_version_cache';
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 min — short enough to surface new releases promptly
 
