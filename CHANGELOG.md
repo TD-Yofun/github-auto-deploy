@@ -1,5 +1,12 @@
 
 
+## [1.0.11](https://github.com/TD-Yofun/github-auto-deploy/compare/v1.0.10...v1.0.11) (2026-07-03)
+
+
+### Bug Fixes
+
+* avoid github api for version checks ([d0586c4](https://github.com/TD-Yofun/github-auto-deploy/commit/d0586c4bc230d8d4d648263e04e1006cad6f8f99))
+
 ## [1.0.10](https://github.com/TD-Yofun/github-auto-deploy/compare/v1.0.9...v1.0.10) (2026-06-08)
 
 
