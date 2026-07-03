@@ -15,7 +15,7 @@ src/
 │   ├── log-store.ts             # Always-on per-run log buffer with debounced GM_setValue flush
 │   ├── session.ts               # SessionData (cross-refresh resume); keyed by runId
 │   ├── scheduler.ts             # Web Worker-based scheduleTick/cancelTick (avoids background tab throttling)
-│   └── version-check.ts         # Compare vs latest GitHub Release; cache result; block outdated
+│   └── version-check.ts         # Compare vs latest userscript release asset; cache result; block outdated
 ├── api/
 │   └── skip-timers.ts           # MutationObserver + 3 click strategies for the gate button
 ├── ui/

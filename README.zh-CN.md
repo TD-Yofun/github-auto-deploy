@@ -23,7 +23,7 @@
 - **概览小部件** —— 当你不在 run 详情页时，右下角浮动面板显示所有正在监控的 run（30 分钟内活跃），点击直达
 - **bfcache 安全** —— 通过 `pageshow.persisted` 在浏览器前进/后退后重新初始化面板
 - **全局错误捕获** —— `window.error` 和 `unhandledrejection` 会输出到面板日志
-- **版本检查** —— 与最新 GitHub Release 比对，过期脚本会被显眼地拦截并提供安装链接和 release notes
+- **版本检查** —— 与最新公开 userscript release asset 比对，过期脚本会被显眼地拦截并提供安装链接
 - **多标签页安全** —— 每个标签页（不同 `runId`）独立运行，所有状态按 `runId` 隔离
 
 ## 安装

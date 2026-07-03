@@ -25,7 +25,7 @@ const userscriptConfig: MonkeyUserScript = {
     'GM_registerMenuCommand',
     'GM_notification',
   ],
-  connect: ['api.github.com'],
+  connect: ['github.com', 'release-assets.githubusercontent.com'],
   'run-at': 'document-idle',
 };
 

@@ -1,8 +1,9 @@
 /**
- * Version check — fetch latest release tag from GitHub and compare.
- * Caches result for 1 hour to avoid hitting the anonymous API rate limit.
+ * Version check — fetch the public userscript release asset and compare the
+ * @version metadata. Avoids GitHub's anonymous REST API rate limit.
  */
 const REPO = 'TD-Yofun/github-auto-deploy';
+const LATEST_SCRIPT_URL = `https://github.com/${REPO}/releases/latest/download/auto-approve-deploy.min.user.js`;
 const CACHE_KEY = 'aad_version_cache';
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 min — short enough to surface new releases promptly
 
@@ -47,38 +48,38 @@ export async function checkLatestVersion(current: string): Promise<VersionCheckR
   return new Promise((resolve, reject) => {
     GM_xmlhttpRequest({
       method: 'GET',
-      url: `https://api.github.com/repos/${REPO}/releases/latest`,
-      headers: { Accept: 'application/vnd.github+json' },
+      url: LATEST_SCRIPT_URL,
       onload(r) {
         if (r.status >= 200 && r.status < 300) {
-          try {
-            const data = JSON.parse(r.responseText);
-            const latest = String(data.tag_name || '').replace(/^v/, '');
-            const releaseUrl = data.html_url || `https://github.com/${REPO}/releases/latest`;
-            const releaseNotes = String(data.body || '').trim();
-            writeCache({ latest, releaseUrl, releaseNotes, ts: Date.now() });
-            resolve({
-              current,
-              latest,
-              outdated: isNewer(latest, current),
-              releaseUrl,
-              releaseNotes,
-            });
-          } catch {
-            reject(new Error('Failed to parse latest release'));
+          const latest = parseUserscriptVersion(r.responseText);
+          if (!latest) {
+            reject(new Error('Failed to parse latest userscript version'));
+            return;
           }
-        } else if (r.status === 404) {
-          // No releases yet — treat as up-to-date
-          resolve({ current, latest: current, outdated: false, releaseUrl: `https://github.com/${REPO}/releases`, releaseNotes: '' });
-        } else {
-          reject(new Error(`HTTP ${r.status}`));
+          const releaseUrl = `https://github.com/${REPO}/releases/latest`;
+          const releaseNotes = '';
+          writeCache({ latest, releaseUrl, releaseNotes, ts: Date.now() });
+          resolve({
+            current,
+            latest,
+            outdated: isNewer(latest, current),
+            releaseUrl,
+            releaseNotes,
+          });
+          return;
         }
+        reject(new Error(`HTTP ${r.status}`));
       },
       onerror() {
         reject(new Error('Network error'));
       },
     });
   });
+}
+
+function parseUserscriptVersion(source: string): string {
+  const match = source.match(/^\s*\/\/\s*@version\s+([^\s]+)/m);
+  return match ? match[1].replace(/^v/, '') : '';
 }
 
 function readCache(): CachedVersion | null {

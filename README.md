@@ -23,7 +23,7 @@ Built with **Vite + TypeScript**, outputs `build/auto-approve-deploy.user.js` (d
 - **Overview widget** — On non-run GitHub pages, a floating panel shows all currently monitored runs with quick-jump links
 - **bfcache safe** — `pageshow.persisted` re-initializes the panel after browser back/forward navigation
 - **Global error capture** — `window.error` and `unhandledrejection` are surfaced into the panel log
-- **Version check** — Compares against the latest GitHub Release; outdated scripts are blocked with a prominent install link and release notes
+- **Version check** — Compares against the latest public userscript release asset; outdated scripts are blocked with a prominent install link
 - **Multi-tab safe** — Each tab (different `runId`) operates independently; all state is keyed by `runId`
 
 ## Installation
@@ -168,7 +168,7 @@ src/
     log-store.ts       ← Always-on log persistence (batch buffer, debounced flush)
     session.ts         ← Session persistence across refreshes
     scheduler.ts       ← Web Worker-based timer (avoids background tab throttling)
-    version-check.ts   ← Compare against latest GitHub Release; cache result
+    version-check.ts   ← Compare against latest userscript release asset; cache result
   api/
     skip-timers.ts     ← MutationObserver + 3-approach DOM-based clicker
   ui/
