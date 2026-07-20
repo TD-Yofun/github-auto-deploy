@@ -1,5 +1,12 @@
 
 
+## [1.0.12](https://github.com/TD-Yofun/github-auto-deploy/compare/v1.0.11...v1.0.12) (2026-07-20)
+
+
+### Features
+
+* support review deployments approval flow ([b2d69bd](https://github.com/TD-Yofun/github-auto-deploy/commit/b2d69bd2ac5a3497b52fd77e83fcb42d1d8dcc77))
+
 ## [1.0.11](https://github.com/TD-Yofun/github-auto-deploy/compare/v1.0.10...v1.0.11) (2026-07-03)
 
 
