@@ -1,31 +1,71 @@
 /**
- * Skip Wait Timers — DOM-based, 3 sequential approaches + MutationObserver
+ * Deployment approval — DOM-based dialog automation + MutationObserver
  */
-import { esc } from '../utils/helpers';
-
 type LogFn = (msg: string, level?: string) => void;
 
+export interface DeploymentTrigger {
+  button: HTMLElement;
+  label: 'Review deployments' | 'Start all waiting jobs';
+  isReviewDeployments: boolean;
+}
+
+const REVIEW_DEPLOYMENTS_SELECTOR =
+  'form[action*="/environments/approve_or_reject"] button[data-show-dialog-id]';
+const REVIEW_DEPLOYMENTS_RE = /^review deployments$/i;
+const START_ALL_WAITING_JOBS_RE = /start all waiting/i;
+
+/** Finds GitHub's current deployment review control before the legacy control. */
+export function findDeploymentTrigger(): DeploymentTrigger | null {
+  const reviewButton = document.querySelector<HTMLElement>(REVIEW_DEPLOYMENTS_SELECTOR);
+  if (reviewButton && REVIEW_DEPLOYMENTS_RE.test(reviewButton.textContent || '')) {
+    return {
+      button: reviewButton,
+      label: 'Review deployments',
+      isReviewDeployments: true,
+    };
+  }
+
+  const candidates = document.querySelectorAll<HTMLElement>(
+    'button, [role="button"], summary, a.btn'
+  );
+  for (const button of candidates) {
+    if (START_ALL_WAITING_JOBS_RE.test(button.textContent || '')) {
+      return {
+        button,
+        label: 'Start all waiting jobs',
+        isReviewDeployments: false,
+      };
+    }
+  }
+  return null;
+}
+
+function findApproveButton(dialog: HTMLElement): HTMLButtonElement | null {
+  return dialog.querySelector<HTMLButtonElement>(
+    'button[name="decision"][value="approved"], button.js-gates-approval-dialog-approve-button, button[data-target="break-glass-deployments"]'
+  );
+}
+
+async function waitForEnabledApproveButton(dialog: HTMLElement): Promise<HTMLButtonElement | null> {
+  for (let i = 0; i < 10; i++) {
+    const button = findApproveButton(dialog);
+    if (button && !button.disabled) return button;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return null;
+}
+
 /**
- * Observe DOM for "Start all waiting jobs" button appearance.
+ * Observe DOM for deployment approval controls. "Review deployments" takes
+ * precedence over the legacy "Start all waiting jobs" button.
  * Fires `onDetected` immediately when the button is found (either already
  * present or dynamically added).  Returns a disconnect function.
  */
 export function observeSkipButton(onDetected: () => void): () => void {
-  const check = (el: HTMLElement): boolean =>
-    /start all waiting/i.test(el.textContent || '');
-
   // Scan the whole document for the button. Cheap (~few ms) and avoids
   // missing late insertions inside already-existing containers that don't
   // bubble up as top-level addedNodes.
-  const scanDocument = (): boolean => {
-    const candidates = document.querySelectorAll<HTMLElement>(
-      'button, [role="button"], summary, a.btn'
-    );
-    for (const btn of candidates) {
-      if (check(btn)) return true;
-    }
-    return false;
-  };
+  const scanDocument = (): boolean => !!findDeploymentTrigger();
 
   let fired = false;
   const tryFire = () => {
@@ -81,24 +121,24 @@ export async function trySkipWaitTimers(owner: string, repo: string, addLog: Log
     addLog(`[skip-debug] gate_request[] inputs: ${gateInputs.length}`);
     gateInputs.forEach((i) => addLog(`[skip-debug]   value="${i.value}"`));
 
-    // Approach 1: click "Start all waiting jobs" button
-    for (const btn of allBtns) {
-      const text = (btn.textContent || '').trim();
-      if (/start all waiting/i.test(text)) {
-        addLog(`[skip] Approach 1: clicking "${text}"`);
-        btn.click();
+    // Approach 1: prefer GitHub's current "Review deployments" control, then
+    // fall back to the legacy "Start all waiting jobs" control.
+    const trigger = findDeploymentTrigger();
+    if (trigger) {
+      addLog(`[skip] Approach 1: clicking "${trigger.label}"`);
+      trigger.button.click();
 
-        let dialog: HTMLElement | null = null;
-        for (let i = 0; i < 10; i++) {
-          dialog = document.querySelector('#gates-break-glass-dialog[open], dialog[open].js-gates-dialog');
-          if (dialog) break;
-          await new Promise((r) => setTimeout(r, 500));
-        }
+      let dialog: HTMLElement | null = null;
+      for (let i = 0; i < 10; i++) {
+        dialog = document.querySelector('#gates-break-glass-dialog[open], dialog[open].js-gates-dialog');
+        if (dialog) break;
+        await new Promise((r) => setTimeout(r, 500));
+      }
 
-        if (!dialog) {
-          addLog('[skip] Approach 1: dialog did not appear after clicking button', 'warn');
-          break;
-        }
+      if (!dialog) {
+        addLog('[skip] Approach 1: dialog did not appear after clicking button', 'warn');
+        if (trigger.isReviewDeployments) return false;
+      } else {
         addLog(`[skip]   dialog found: #${dialog.id}`);
 
         const checkboxes = dialog.querySelectorAll<HTMLInputElement>(
@@ -116,24 +156,20 @@ export async function trySkipWaitTimers(owner: string, repo: string, addLog: Log
 
         if (checkboxes.length === 0) {
           addLog('[skip] Approach 1: no checkboxes found in dialog', 'warn');
-          break;
+          if (trigger.isReviewDeployments) return false;
+        } else {
+          const submitBtn = await waitForEnabledApproveButton(dialog);
+          if (submitBtn) {
+            const st = (submitBtn.textContent || '').trim();
+            addLog(`[skip]   clicking approve: "${st.slice(0, 60)}"`, 'ok');
+            submitBtn.click();
+            await new Promise((r) => setTimeout(r, 3000));
+            return true;
+          }
+
+          addLog('[skip] Approach 1: approve button did not become enabled', 'warn');
+          if (trigger.isReviewDeployments) return false;
         }
-
-        await new Promise((r) => setTimeout(r, 300));
-
-        const submitBtn = dialog.querySelector<HTMLButtonElement>(
-          'button[type="submit"], button.btn-danger, button[data-target="break-glass-deployments"]'
-        );
-        if (submitBtn) {
-          const st = (submitBtn.textContent || '').trim();
-          addLog(`[skip]   clicking submit: "${st.slice(0, 60)}"`, 'ok');
-          submitBtn.click();
-          await new Promise((r) => setTimeout(r, 3000));
-          return true;
-        }
-
-        addLog('[skip] Approach 1: no submit button found in dialog', 'warn');
-        break;
       }
     }
 

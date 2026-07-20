@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Tampermonkey userscript that auto-clicks **"Start all waiting jobs"** on GitHub Actions `Deploy (PRD)` workflow runs. Pure DOM-based — **no GitHub token**. Built with Vite + TypeScript + `vite-plugin-monkey`; outputs `build/auto-approve-deploy.user.js` (dev) and `build/auto-approve-deploy.min.user.js` (prod). The `build/` folder is gitignored — artifacts are produced by CI and uploaded to GitHub Releases.
+Tampermonkey userscript that auto-approves GitHub Actions deployment gates on `Deploy (PRD)` workflow runs. It prefers **"Review deployments"**, checks every `gate_request[]`, then clicks **"Approve and deploy"**; **"Start all waiting jobs"** is the legacy fallback. Pure DOM-based — **no GitHub token**. Built with Vite + TypeScript + `vite-plugin-monkey`; outputs `build/auto-approve-deploy.user.js` (dev) and `build/auto-approve-deploy.min.user.js` (prod). The `build/` folder is gitignored — artifacts are produced by CI and uploaded to GitHub Releases.
 
 ## Architecture
 

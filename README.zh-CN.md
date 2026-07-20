@@ -2,7 +2,7 @@
 
 [English](README.md) | **中文**
 
-一个 Tampermonkey 用户脚本，自动点击 GitHub Actions 部署门控上的 **"Start all waiting jobs"** 按钮——再也不用手动一环一环地批准多环境部署流水线。
+一个 Tampermonkey 用户脚本，自动批准 GitHub Actions 的部署门控——再也不用手动一环一环地批准多环境部署流水线。
 
 **无需 GitHub Token。** 脚本通过 DOM 检测 break-glass 按钮，并基于你浏览器现有的登录会话点过确认弹窗。
 
@@ -10,7 +10,7 @@
 
 ## 功能特性
 
-- **纯 DOM 自动点击器** —— 通过 `MutationObserver` 和定时轮询检测 "Start all waiting jobs"，自动点过确认对话框
+- **纯 DOM 自动批准器** —— 优先检测 GitHub 的 "Review deployments"，勾选全部待部署环境后点击 "Approve and deploy"；找不到时再回退到 "Start all waiting jobs"
 - **仅对 `Deploy (PRD)` 生效** —— 仅当页面头部 workflow label 匹配 `Deploy (PRD)`（子串匹配，容忍 emoji 前缀）时才激活
 - **自动停止 + 总结报告** —— 从页面状态徽标读取 workflow 结论（`success`/`failure`/`cancelled`/`timed_out`/`skipped`），命中终态后自动停止并生成报告
 - **桌面通知** —— `GM_notification` 在 run 进入终态时弹出系统通知（点击聚焦标签页）
@@ -42,7 +42,7 @@
 2. 页面右侧会出现侧边面板
 3. 点击 **▶ Start** 开始监控
 4. 脚本将会：
-   - 监听 DOM 中的 "Start all waiting jobs" 按钮并点过确认对话框
+   - 优先监听 DOM 中的 "Review deployments"，勾选全部待部署环境并批准；缺失时回退到 "Start all waiting jobs"
    - 每 `interval` 秒兜底轮询一次
    - 当 workflow 进入终态时自动停止并显示总结报告
    - 弹出桌面通知告知结果
@@ -101,13 +101,13 @@
                        ┌─────────────────────┼─────────────────────┐
                        │                     │                     │
             ┌──────────▼──────────┐  ┌───────▼───────┐   ┌─────────▼──────────┐
-            │ "Start all waiting  │  │  Run 命中     │   │ 10 分钟无进展？     │
-            │  jobs" 按钮出现？   │  │  终态？       │   │ （看门狗）          │
+            │ "Review deployments"│  │  Run 命中     │   │ 10 分钟无进展？     │
+            │ 或旧版按钮出现？     │  │  终态？       │   │ （看门狗）          │
             └──────────┬──────────┘  └───────┬───────┘   └─────────┬──────────┘
                        │ 是                  │ 是                  │ 是
             ┌──────────▼──────────┐  ┌───────▼─────────────┐  ┌─────────────┐
-            │ 点击按钮 → 勾选环境 │  │ 停止 + 生成总结报告 │  │ location.   │
-            │ 勾选框 → 提交对话框  │  │ → 桌面通知          │  │ reload();   │
+            │ 点击 → 勾选全部环境  │  │ 停止 + 生成总结报告 │  │ location.   │
+            │ → 批准已启用的对话框 │  │ → 桌面通知          │  │ reload();   │
             └──────────┬──────────┘  └─────────────────────┘  │ 自动恢复    │
                        │                                       └─────────────┘
               ┌────────▼────────┐
@@ -116,13 +116,13 @@
               └─────────────────┘
 ```
 
-## "Start all waiting jobs" 点击实现
+## 部署批准实现
 
-脚本按顺序尝试 3 种方式：
+脚本优先采用 GitHub 当前的审核流程：
 
-1. **点击可见按钮** → 等待确认对话框 → 勾选环境复选框 → 点击提交
-2. **程序化表单提交**，从 DOM 收集 `gate_request[]` 字段
-3. **手工 POST**，从页面提取 CSRF token（同源 `fetch` 带 `credentials: 'same-origin'`）
+1. **点击 "Review deployments"** → 等待 `js-gates-dialog` 对话框 → 勾选全部 `gate_request[]` 复选框 → 等待 **"Approve and deploy"** 解除禁用 → 点击批准
+2. 找不到审核按钮时，回退到 **"Start all waiting jobs"** 及其确认对话框
+3. 仅当旧对话框无法完成时，才尝试既有 DOM 回退策略：程序化表单提交，或使用页面 CSRF token 发起同源 POST
 
 三种方式都依赖你已有的浏览器会话 cookie——不需要 API token。
 

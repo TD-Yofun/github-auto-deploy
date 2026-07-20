@@ -1,8 +1,9 @@
 /**
- * Main entry — DOM-based "Start all waiting jobs" auto-clicker
+ * Main entry — DOM-based deployment approval auto-clicker
  *
- * No GitHub token required. Detects the break-glass button on the page and
- * clicks through the dialog. Only activates on Deploy (PRD) workflow runs.
+ * No GitHub token required. Prefers GitHub's "Review deployments" flow and
+ * falls back to the legacy break-glass button. Only activates on Deploy (PRD)
+ * workflow runs.
  */
 import { parseUrl, isDeployPRDPage, getWorkflowName, type RunParams } from './utils/url';
 import { loadConfig, saveConfigField } from './core/config';
@@ -10,7 +11,7 @@ import { createState, WATCHDOG_TIMEOUT_MS, type State } from './core/state';
 import { initLogStore, downloadLog, clearStoredLogs } from './core/log-store';
 import { saveRunningState, wasRunning, saveSession, loadSession, clearSession } from './core/session';
 import { scheduleTick, cancelTick } from './core/scheduler';
-import { trySkipWaitTimers, observeSkipButton } from './api/skip-timers';
+import { findDeploymentTrigger, trySkipWaitTimers, observeSkipButton } from './api/skip-timers';
 import { checkLatestVersion, getCurrentVersion } from './core/version-check';
 import { esc } from './utils/helpers';
 import { injectStyles } from './ui/styles';
@@ -88,7 +89,7 @@ function abortIfDrifted(): boolean {
   return false;
 }
 
-// ── Skip-button observer & poll ────────────────────────────
+// ── Deployment approval observer & poll ────────────────────
 async function handleSkipDetected(): Promise<void> {
   if (skipInProgress || !state.running || state.paused) return;
   if (Date.now() < skipCooldownUntil) return;
@@ -96,7 +97,8 @@ async function handleSkipDetected(): Promise<void> {
 
   skipInProgress = true;
   try {
-    log('[detect] "Start all waiting jobs" button found in DOM');
+    const triggerLabel = findDeploymentTrigger()?.label || 'deployment approval control';
+    log(`[detect] "${triggerLabel}" found in DOM`);
     const cur = parseUrl();
     if (!cur) return;
     const ok = await trySkipWaitTimers(cur.owner, cur.repo, log, true);
@@ -107,7 +109,7 @@ async function handleSkipDetected(): Promise<void> {
       state.sessionSkipped++;
       state.totalApproved++;
       state.lastProgressAt = Date.now();
-      recordEvent('approve', 'Clicked "Start all waiting jobs"');
+      recordEvent('approve', `Approved deployments via "${triggerLabel}"`);
       if (el) renderCounters(el, state);
       saveSession(state.startRunId!, state);
       // brief cooldown to avoid double-firing
@@ -209,14 +211,11 @@ async function poll(): Promise<void> {
     return;
   }
 
-  // Check DOM for the button as fallback
-  const btnText = /start all waiting/i;
-  const found = [...document.querySelectorAll<HTMLElement>(
-    'button, [role="button"], summary'
-  )].some((b) => btnText.test(b.textContent || ''));
+  // Check DOM for the approval control as a fallback.
+  const trigger = findDeploymentTrigger();
 
-  if (found && !skipInProgress && Date.now() >= skipCooldownUntil) {
-    log(`[poll #${state.pollCycle}] button present — triggering click`);
+  if (trigger && !skipInProgress && Date.now() >= skipCooldownUntil) {
+    log(`[poll #${state.pollCycle}] "${trigger.label}" present — triggering click`);
     handleSkipDetected();
   } else {
     if (el) setStatus(el, `🔄 Monitoring (cycle ${state.pollCycle})...`);

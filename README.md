@@ -2,7 +2,7 @@
 
 **English** | [中文](README.zh-CN.md)
 
-A Tampermonkey userscript that automatically clicks **"Start all waiting jobs"** on GitHub Actions deployment gates — no more manual clicking through multi-environment deploy pipelines.
+A Tampermonkey userscript that automatically approves GitHub Actions deployment gates — no more manual clicking through multi-environment deploy pipelines.
 
 **No GitHub token required.** The script detects the break-glass button via DOM and clicks through the confirmation dialog using your existing browser session.
 
@@ -10,7 +10,7 @@ Built with **Vite + TypeScript**, outputs `build/auto-approve-deploy.user.js` (d
 
 ## Features
 
-- **DOM-only auto-clicker** — Detects "Start all waiting jobs" via `MutationObserver` + periodic polling; clicks through the confirmation dialog automatically
+- **DOM-only auto-approver** — Prefers GitHub's "Review deployments" flow, checks every pending deployment, then clicks "Approve and deploy"; falls back to "Start all waiting jobs"
 - **Targets only `Deploy (PRD)` runs** — Activates only when the page header workflow label matches `Deploy (PRD)` (substring match, emoji-prefix tolerant)
 - **Auto-stop + summary report** — Reads workflow conclusion from the page status badge (`success`/`failure`/`cancelled`/`timed_out`/`skipped`); stops automatically and generates a report
 - **Desktop notification** — `GM_notification` pops a system notification when a run reaches a terminal state (click to focus the tab)
@@ -42,7 +42,7 @@ Built with **Vite + TypeScript**, outputs `build/auto-approve-deploy.user.js` (d
 2. The side panel appears on the right edge of the page
 3. Click **▶ Start** to begin monitoring
 4. The script will:
-   - Watch the DOM for the "Start all waiting jobs" button and click through the dialog
+   - Watch the DOM for "Review deployments", check every pending deployment, and approve it; use "Start all waiting jobs" only as a fallback
    - Poll every `interval` seconds as a fallback
    - Auto-stop and show a summary report when the workflow reaches a terminal state
    - Pop a desktop notification with the outcome
@@ -102,15 +102,15 @@ When you're on any GitHub page that is **not** a Deploy (PRD) run, a small float
                        ┌─────────────────────┼─────────────────────┐
                        │                     │                     │
             ┌──────────▼──────────┐  ┌───────▼───────┐   ┌─────────▼──────────┐
-            │ "Start all waiting  │  │  Run reached  │   │ No progress for    │
-            │  jobs" button       │  │  terminal     │   │ 10 min (watchdog)? │
-            │  appears?           │  │  conclusion?  │   └─────────┬──────────┘
+            │ "Review deployments"│  │  Run reached  │   │ No progress for    │
+            │ or legacy button    │  │  terminal     │   │ 10 min (watchdog)? │
+            │ appears?            │  │  conclusion?  │   └─────────┬──────────┘
             └──────────┬──────────┘  └───────┬───────┘             │ Yes
                        │ Yes                 │ Yes                 ▼
             ┌──────────▼──────────┐  ┌───────▼─────────────┐  ┌─────────────┐
-            │ Click button →      │  │ Stop + generate     │  │ location.   │
-            │ check checkboxes →  │  │ summary report →    │  │ reload();   │
-            │ submit dialog       │  │ desktop notification│  │ auto-resume │
+            │ Click → check every │  │ Stop + generate     │  │ location.   │
+            │ deployment → approve│  │ summary report →    │  │ reload();   │
+            │ enabled dialog      │  │ desktop notification│  │ auto-resume │
             └──────────┬──────────┘  └─────────────────────┘  └─────────────┘
                        │
               ┌────────▼────────┐
@@ -119,13 +119,13 @@ When you're on any GitHub page that is **not** a Deploy (PRD) run, a small float
               └─────────────────┘
 ```
 
-## How "Start all waiting jobs" Click Works
+## How Deployment Approval Works
 
-The script attempts 3 approaches in order:
+The script prefers GitHub's current review flow:
 
-1. **Click the visible button** → wait for confirmation dialog → check environment checkboxes → click submit
-2. **Programmatic form submit** with `gate_request[]` fields collected from the DOM
-3. **Manual POST** using a CSRF token extracted from the page (same-origin `fetch` with `credentials: 'same-origin'`)
+1. **Click "Review deployments"** → wait for the `js-gates-dialog` dialog → check every `gate_request[]` checkbox → wait for **"Approve and deploy"** to become enabled → click it
+2. **Fall back to "Start all waiting jobs"** and its confirmation dialog when the review button is absent
+3. If the legacy dialog cannot be completed, use the existing DOM-based fallbacks: programmatic form submission with `gate_request[]` fields collected from the DOM, then a same-origin manual POST using a page CSRF token.
 
 All three rely on your existing browser session cookies — no API token is needed.
 
