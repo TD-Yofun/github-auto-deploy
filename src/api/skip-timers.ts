@@ -17,7 +17,7 @@ const START_ALL_WAITING_JOBS_RE = /start all waiting/i;
 /** Finds GitHub's current deployment review control before the legacy control. */
 export function findDeploymentTrigger(): DeploymentTrigger | null {
   const reviewButton = document.querySelector<HTMLElement>(REVIEW_DEPLOYMENTS_SELECTOR);
-  if (reviewButton && REVIEW_DEPLOYMENTS_RE.test(reviewButton.textContent || '')) {
+  if (reviewButton && REVIEW_DEPLOYMENTS_RE.test((reviewButton.textContent || '').trim())) {
     return {
       button: reviewButton,
       label: 'Review deployments',

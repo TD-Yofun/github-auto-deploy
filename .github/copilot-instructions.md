@@ -83,7 +83,7 @@ GM_notification, unsafeWindow
 
 ### Watchdog (10 min)
 
-In `poll()`: if `now - state.lastProgressAt > WATCHDOG_TIMEOUT_MS` while running and not paused → write final log, set running stays true (so resume triggers), then `location.reload()`. Resume path (`wasRunning()`) re-arms everything.
+In `poll()`: if `now - state.lastProgressAt > WATCHDOG_TIMEOUT_MS` while running and not paused → reset `lastProgressAt` before persisting state, then `location.reload()`. Resume path (`wasRunning()`) re-arms everything without immediately re-triggering the watchdog.
 
 ### bfcache & error capture (main.ts)
 

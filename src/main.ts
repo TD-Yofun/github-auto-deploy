@@ -204,6 +204,9 @@ async function poll(): Promise<void> {
   if (state.lastProgressAt > 0 && Date.now() - state.lastProgressAt >= WATCHDOG_TIMEOUT_MS) {
     const mins = Math.round(WATCHDOG_TIMEOUT_MS / 60000);
     log(`⏱️ Watchdog: no progress for ${mins} min — reloading page to recover...`, 'warn');
+    // Persist a fresh baseline before reloading. Otherwise resume() restores
+    // the already-expired timestamp and immediately enters another reload.
+    state.lastProgressAt = Date.now();
     recordEvent('error', `Watchdog reload after ${mins} min of no progress`);
     saveSession(state.startRunId!, state);
     saveRunningState(state.startRunId!, true);
