@@ -1,5 +1,12 @@
 
 
+## [1.0.13](https://github.com/TD-Yofun/github-auto-deploy/compare/v1.0.12...v1.0.13) (2026-07-21)
+
+
+### Bug Fixes
+
+* handle deployment approval recovery ([28a6cf3](https://github.com/TD-Yofun/github-auto-deploy/commit/28a6cf367f7712a6c301b1d42fb151fcf8a98c44))
+
 ## [1.0.12](https://github.com/TD-Yofun/github-auto-deploy/compare/v1.0.11...v1.0.12) (2026-07-20)
 
 
