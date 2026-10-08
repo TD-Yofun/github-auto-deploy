@@ -6,6 +6,7 @@ import {
   type OrganizationRepository,
 } from '../core/organization-repositories';
 import { esc } from '../utils/helpers';
+import { getHomeSidebarWidgetHost, removeHomeSidebarWidget } from './home-sidebar';
 
 const WIDGET_ID = 'aad-org-repo-search';
 
@@ -32,19 +33,7 @@ let sidebarObserver: MutationObserver | null = null;
 let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
 
 function getHost(): HTMLElement | null {
-  const existing = document.getElementById(WIDGET_ID) as HTMLElement | null;
-  if (existing) return existing;
-
-  const details = document.querySelector<HTMLElement>(
-    '.dashboard-sidebar loading-context [data-target="loading-context.details"]',
-  );
-  if (!details) return null;
-
-  const host = document.createElement('section');
-  host.id = WIDGET_ID;
-  const content = details.querySelector<HTMLElement>(':scope > .tmp-px-4') || details;
-  content.append(host);
-  return host;
+  return getHomeSidebarWidgetHost(WIDGET_ID);
 }
 
 function renderOrganizations(): string {
@@ -77,7 +66,7 @@ function renderResults(): string {
 
 function renderWidget(): boolean {
   if (organizationState.kind === 'ready' && organizationState.organizations.length === 0) {
-    document.getElementById(WIDGET_ID)?.remove();
+    removeHomeSidebarWidget(WIDGET_ID);
     return true;
   }
   const host = getHost();
@@ -192,7 +181,7 @@ async function searchRepositories(): Promise<void> {
 /** Mount on GitHub home only. Organization data loads once per home-page visit. */
 export function mountOrganizationRepositorySearch(isOnHomePage: boolean): void {
   if (!isOnHomePage) {
-    document.getElementById(WIDGET_ID)?.remove();
+    removeHomeSidebarWidget(WIDGET_ID);
     sidebarObserver?.disconnect();
     sidebarObserver = null;
     if (reconcileTimer) { clearTimeout(reconcileTimer); reconcileTimer = null; }

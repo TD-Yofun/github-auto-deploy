@@ -286,6 +286,23 @@ $panel-muted: #8b949e;
 .aad-log-err   { color: #f85149; }
 
 /* ── GitHub Home Pull Requests ───────────────────────── */
+#aad-home-sidebar-widgets {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 8px;
+}
+
+// The current dashboard's repository partial has an 8px outer inset. Match
+// GitHub's 16px divider and 24px content grid without affecting the legacy UI.
+#aad-home-sidebar-widgets > #aad-pr-sidebar,
+#aad-home-sidebar-widgets > #aad-org-repo-search {
+  box-sizing: border-box;
+  margin-top: 16px;
+  padding-bottom: 16px;
+  padding-right: 8px;
+  padding-left: 8px;
+}
+
 #aad-pr-sidebar {
   margin-top: 24px;
   padding: 16px 0 20px;
