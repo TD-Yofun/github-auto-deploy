@@ -8,3 +8,4 @@ build/
 !.yarn/versions
 .pnp.*
 *.tgz
+.DS_Store
