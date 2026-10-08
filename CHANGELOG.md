@@ -1,5 +1,13 @@
 
 
+## [1.0.17](https://github.com/TD-Yofun/github-auto-deploy/compare/v1.0.16...v1.0.17) (2026-10-08)
+
+
+### Bug Fixes
+
+* adapt home widgets to new dashboard ([c90e284](https://github.com/TD-Yofun/github-auto-deploy/commit/c90e284a3b6055a7848ecdffb3010b17b732f9bc))
+* enable non-interactive releases ([bd351f8](https://github.com/TD-Yofun/github-auto-deploy/commit/bd351f825d4e8198a4a73f041fb3c55a30d53f49))
+
 ## [1.0.16](https://github.com/TD-Yofun/github-auto-deploy/compare/v1.0.15...v1.0.16) (2026-08-31)
 
 
