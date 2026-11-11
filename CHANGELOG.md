@@ -1,5 +1,12 @@
 
 
+## [1.0.18](https://github.com/TD-Yofun/github-auto-deploy/compare/v1.0.17...v1.0.18) (2026-11-11)
+
+
+### Features
+
+* add settings entry, forced updates and richer deploy reports ([db7b292](https://github.com/TD-Yofun/github-auto-deploy/commit/db7b29200c1ad1435fb7185e3f3be6355cbf73da))
+
 ## [1.0.17](https://github.com/TD-Yofun/github-auto-deploy/compare/v1.0.16...v1.0.17) (2026-10-08)
 
 
