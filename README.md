@@ -229,7 +229,7 @@ src/
 
 ### Release Flow
 
-Local: `yarn release -- patch` (release-it) bumps version, builds, commits, tags. Then `git push --follow-tags origin main` triggers `.github/workflows/release.yml` which creates the GitHub Release and uploads both `.user.js` artifacts. See `.agents/skills/release/SKILL.md` for the full workflow.
+Local: `yarn release patch` (release-it) bumps version, builds, commits, tags. Then `git push --follow-tags origin main` triggers `.github/workflows/release.yml` which creates the GitHub Release and uploads both `.user.js` artifacts. See `.agents/skills/release/SKILL.md` for the full workflow.
 
 ## License
 

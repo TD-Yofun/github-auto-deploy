@@ -226,7 +226,7 @@ src/
 
 ### 发布流程
 
-本地：`yarn release -- patch`（release-it）升版本号、构建、提交、打 tag。然后 `git push --follow-tags origin main` 触发 `.github/workflows/release.yml`，自动创建 GitHub Release 并上传两份 `.user.js` 产物。完整流程见 `.agents/skills/release/SKILL.md`。
+本地：`yarn release patch`（release-it）升版本号、构建、提交、打 tag。然后 `git push --follow-tags origin main` 触发 `.github/workflows/release.yml`，自动创建 GitHub Release 并上传两份 `.user.js` 产物。完整流程见 `.agents/skills/release/SKILL.md`。
 
 ## License
 

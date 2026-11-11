@@ -53,7 +53,7 @@ If the user already specified a bump in their request (e.g. "发布 patch"), acc
 ### Then run the rest end-to-end (no further prompts)
 
 ```
-yarn release -- <bump> --ci
+yarn release <bump> --ci
 git push --follow-tags origin main
 ```
 
@@ -91,5 +91,5 @@ The agent must stop and ask the user before acting on any of these:
 ## Notes
 
 - Always pass `--ci` to release-it to skip its interactive prompts (we own confirmation at the skill level).
-- If you must inspect dry-run output for debugging, run `yarn release:dry -- <bump> --ci > /tmp/dry.log 2>&1` and read the file. Do not pipe through `tee`/`tail` (line-buffered output can hide prompts).
+- If you must inspect dry-run output for debugging, run `yarn release:dry <bump> --ci > /tmp/dry.log 2>&1` and read the file. Do not pipe through `tee`/`tail` (line-buffered output can hide prompts).
 - The CI workflow checks that `package.json` version matches the pushed tag and uploads both `.user.js` files via `softprops/action-gh-release@v2`.

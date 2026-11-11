@@ -131,7 +131,7 @@ All state is keyed by `runId`, so multiple tabs running different deploys are in
 - `yarn dev:build` / `yarn dev:all` → build watch modes
 - `yarn preview:ui` → local Vite preview for the My PRs sidebar
 - **Always run `yarn build` after touching `src/**`** before committing — both `.user.js` files must be in sync with source.
-- Release: `yarn release -- patch|minor|major` (release-it bumps + builds + commits + tags), then `git push --follow-tags origin main` → `.github/workflows/release.yml` creates GitHub Release with both artifacts. Full procedure: `.agents/skills/release/SKILL.md`.
+- Release: `yarn release patch|minor|major` (release-it bumps + builds + commits + tags), then `git push --follow-tags origin main` → `.github/workflows/release.yml` creates GitHub Release with both artifacts. Full procedure: `.agents/skills/release/SKILL.md`.
 
 ## Commit Convention
 
