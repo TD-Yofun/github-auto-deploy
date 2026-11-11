@@ -4,6 +4,8 @@
  */
 const REPO = 'TD-Yofun/github-auto-deploy';
 const LATEST_SCRIPT_URL = `https://github.com/${REPO}/releases/latest/download/auto-approve-deploy.min.user.js`;
+/** Direct install/update link; Tampermonkey opens its install page for `.user.js` URLs. */
+export const INSTALL_URL = LATEST_SCRIPT_URL;
 const CACHE_KEY = 'aad_version_cache';
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 min — short enough to surface new releases promptly
 
@@ -49,6 +51,7 @@ export async function checkLatestVersion(current: string): Promise<VersionCheckR
     GM_xmlhttpRequest({
       method: 'GET',
       url: LATEST_SCRIPT_URL,
+      timeout: 10_000,
       onload(r) {
         if (r.status >= 200 && r.status < 300) {
           const latest = parseUserscriptVersion(r.responseText);
@@ -72,6 +75,9 @@ export async function checkLatestVersion(current: string): Promise<VersionCheckR
       },
       onerror() {
         reject(new Error('Network error'));
+      },
+      ontimeout() {
+        reject(new Error('Request timed out'));
       },
     });
   });

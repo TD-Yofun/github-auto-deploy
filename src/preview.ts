@@ -1,4 +1,17 @@
 import './preview.scss';
+import { injectStyles } from './ui/styles';
+import { initSettings } from './ui/settings';
+import { buildUI } from './ui/ui';
+import { loadConfig } from './core/config';
+
+// Minimal Tampermonkey stand-ins so the real UI modules run in a plain browser.
+const store = new Map<string, unknown>();
+Object.assign(globalThis, {
+  GM_getValue: (key: string, fallback: unknown) => (store.has(key) ? store.get(key) : fallback),
+  GM_setValue: (key: string, value: unknown) => { store.set(key, value); },
+  GM_addStyle: (css: string) => { const el = document.createElement('style'); el.textContent = css; document.head.append(el); },
+  GM_info: { script: { version: '0.0.0-preview' } },
+});
 
 const opened = [
   ['Talkdesk/atlas-apps-configuration', '#624', 'Prevent duplicate watchdog recovery'],
@@ -30,7 +43,7 @@ function renderOrgItems(items: string[][]): string {
 
 function render(loading = false, search = false): void {
   document.querySelector<HTMLDivElement>('#app')!.innerHTML = `<main class="preview-shell">
-    <header class="preview-header"><strong>GitHub</strong><span>Dashboard</span><span>Pull requests</span><span>Issues</span></header>
+    <header class="preview-header"><strong>GitHub</strong><span>Dashboard</span><span>Pull requests</span><span>Issues</span><div class="AppHeader-actions"><div class="AppHeader-user preview-avatar"></div></div></header>
     <div class="preview-layout">
       <aside class="preview-sidebar">
         <div class="preview-user">TD-Yofun</div>
@@ -60,3 +73,7 @@ function render(loading = false, search = false): void {
 }
 
 render();
+
+injectStyles();
+initSettings(loadConfig(), () => render());
+if (new URLSearchParams(location.search).has('panel')) buildUI('123456789', loadConfig());

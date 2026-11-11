@@ -1,0 +1,79 @@
+/* Shared building blocks for the run panel and the settings dialog. */
+.aad-icon { display: block; flex-shrink: 0; }
+
+.aad-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--aad-fg-muted);
+  background: transparent;
+  cursor: pointer;
+  &:hover:not(:disabled) { color: var(--aad-fg); background: var(--aad-bg-hover); }
+  &:disabled { opacity: .4; cursor: not-allowed; }
+}
+
+.aad-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border: 1px solid var(--aad-border);
+  border-radius: 6px;
+  color: var(--aad-fg);
+  background: var(--aad-bg-inset);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+  &:hover:not(:disabled) { background: var(--aad-bg-hover); }
+  &:disabled { opacity: .55; cursor: not-allowed; }
+  &--sm { padding: 0 8px; font-size: 12px; line-height: 22px; }
+  &--primary {
+    border-color: transparent;
+    color: #fff;
+    background: var(--aad-primary-bg);
+    &:hover:not(:disabled) { background: var(--aad-primary-bg-hover); }
+  }
+  &--danger {
+    border-color: transparent;
+    color: #fff;
+    background: var(--aad-danger);
+    &:hover:not(:disabled) { background: var(--aad-danger-bg); }
+  }
+  &.aad-copied { color: #fff; border-color: transparent; background: var(--aad-primary-bg); }
+}
+
+#aad-panel button:focus-visible,
+#aad-tab:focus-visible,
+#aad-settings-overlay button:focus-visible,
+#aad-settings-overlay input:focus-visible {
+  outline: 2px solid var(--aad-focus);
+  outline-offset: -1px;
+}
+
+#aad-settings-entry {
+  // Primer's AppHeader-button supplies the look; this only guards the fallback.
+  cursor: pointer;
+  .aad-icon { margin: auto; }
+  &.aad-needs-update {
+    position: relative;
+    &::after {
+      content: '';
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--fgColor-danger, #d1242f);
+      box-shadow: 0 0 0 2px var(--bgColor-default, #fff);
+    }
+  }
+}

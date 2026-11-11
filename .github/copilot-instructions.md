@@ -10,9 +10,11 @@ Tampermonkey userscript that auto-approves GitHub Actions deployment gates on `D
 src/
 ├── main.ts                      # Entry — wires modules, page detection, lifecycle, global error handlers
 ├── core/
-│   ├── config.ts                # GM_getValue/setValue persistent config (interval, saveLog, panelVisible)
+│   ├── config.ts                # GM_getValue/setValue persistent config (interval, saveLog, panelVisible, showPullRequests, showOrganizationRepos)
 │   ├── state.ts                 # Runtime state types; exports WATCHDOG_TIMEOUT_MS = 10 * 60 * 1000
 │   ├── log-store.ts             # Always-on per-run log buffer with debounced GM_setValue flush
+│   ├── storage-cleanup.ts       # Index + 14-day pruning of per-run GM storage keys
+│   ├── report.ts                # Report model (buildReport/reportToMarkdown) shared by panel + Markdown
 │   ├── session.ts               # SessionData (cross-refresh resume); keyed by runId
 │   ├── scheduler.ts             # Web Worker-based scheduleTick/cancelTick (avoids background tab throttling)
 │   ├── pull-requests.ts         # Signed-in GitHub HTML pull request discovery
@@ -21,7 +23,8 @@ src/
 │   └── skip-timers.ts           # MutationObserver + 3 click strategies for the gate button
 ├── ui/
 │   ├── styles.ts                # Injects compiled Sass via GM_addStyle
-│   ├── styles.scss              # Panel and sidebar Sass styles
+│   ├── styles.scss              # Sass entry; partials in styles/ (tokens use Primer vars → light/dark)
+│   ├── settings.ts              # Header settings entry (.AppHeader-actions) + settings dialog
 │   ├── ui.ts                    # Panel HTML/render/event binding; summary report + Markdown export
 │   └── pr-overview.ts           # GitHub home pull request section below Top repositories
 └── utils/
@@ -35,7 +38,7 @@ src/
 
 ```
 GM_addStyle, GM_getValue, GM_setValue,
-GM_notification, unsafeWindow
+GM_notification, GM_listValues, GM_deleteValue, unsafeWindow
 ```
 
 - `GM_notification` — desktop notification on terminal conclusion (click → focus tab)
@@ -44,10 +47,12 @@ GM_notification, unsafeWindow
 
 | Key | Purpose |
 |-----|---------|
-| `aad_config` | Global config (interval, saveLog, panelVisible) |
+| `aad_config` | Global config (interval, saveLog, panelVisible, showPullRequests, showOrganizationRepos) |
 | `aad_running_${runId}` | `true` while monitoring; used by `wasRunning()` for resume |
 | `aad_session_${runId}` | SessionData (counters, timeline, `lastProgressAt`) |
 | `aad_log_${runId}` | Persisted log buffer (always written; never gated) |
+| `aad_report_${runId}` | Final execution report (shown again after refresh) |
+| `aad_run_index` | `{runId: lastTouchedAt}`; drives the 14-day cleanup in `core/storage-cleanup.ts` |
 | `aad_version_check` | Cached latest release check |
 
 ### State fields (state.ts)
@@ -55,7 +60,8 @@ GM_notification, unsafeWindow
 - `running: boolean` — main on/off
 - `paused: boolean` — pause toggle; when true, observer detached and tick is a heartbeat only
 - `lastProgressAt: number` — updated on every successful click/event; watchdog reloads page after `WATCHDOG_TIMEOUT_MS` of no progress
-- `counters` + `timeline[]` — surfaced in summary report
+- `counters` + `timeline[]` + `pausedMs`/`pausedAt` — surfaced via `core/report.ts` (`buildReport`); the final report is persisted as `aad_report_${runId}` so it survives refresh
+- Approve events carry `environments[]` (from `trySkipWaitTimers → SkipResult`); log lines are stored with a full date, the panel shows time only
 
 ### Activation conditions
 
@@ -134,8 +140,9 @@ Conventional Commits enforced by commitlint. See `.agents/skills/commit/SKILL.md
 ## Do / Don't
 
 - ✅ Use `scheduleTick` / `cancelTick` for any periodic work
-- ✅ Key all new persistent state by `runId`
+- ✅ Key all new persistent state by `runId` **and** use the `aad_<kind>_` prefix list in `storage-cleanup.ts` (`RUN_KEY_PREFIXES`) so it is pruned after 14 days
 - ✅ Update `lastProgressAt` on any meaningful action so watchdog doesn't trigger
+- ✅ Keep the forced-update gate in `main.ts` (`versionGate`): `checkPage()` must do nothing while `pending`, and no feature may start/mount while `blocked`; a failed check fails open
 - ❌ Don't gate log writes behind the `saveLog` flag
 - ❌ Don't call `setTimeout` directly for the main poll loop
 - ❌ Don't add a GitHub token flow — DOM only

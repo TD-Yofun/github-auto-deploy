@@ -3,6 +3,22 @@
  */
 type LogFn = (msg: string, level?: string) => void;
 
+export interface SkipResult {
+  ok: boolean;
+  /** Names of the environments that were approved (empty when unknown, e.g. legacy fallbacks). */
+  environments: string[];
+}
+
+const FAILED: SkipResult = { ok: false, environments: [] };
+
+/** Human-readable environment name for a gate checkbox: its label text, else the raw gate id. */
+function environmentName(cb: HTMLInputElement): string {
+  const label =
+    (cb.id && document.querySelector(`label[for="${CSS.escape(cb.id)}"]`)) || cb.closest('label');
+  const text = (label?.textContent || '').replace(/\s+/g, ' ').trim();
+  return (text || cb.value).slice(0, 80);
+}
+
 export interface DeploymentTrigger {
   button: HTMLElement;
   label: 'Review deployments' | 'Start all waiting jobs';
@@ -93,7 +109,7 @@ export function observeSkipButton(onDetected: () => void): () => void {
   return () => observer.disconnect();
 }
 
-export async function trySkipWaitTimers(owner: string, repo: string, addLog: LogFn, skipInitialDelay = false): Promise<boolean> {
+export async function trySkipWaitTimers(owner: string, repo: string, addLog: LogFn, skipInitialDelay = false): Promise<SkipResult> {
   try {
     await new Promise((r) => setTimeout(r, skipInitialDelay ? 300 : 2000));
 
@@ -137,7 +153,7 @@ export async function trySkipWaitTimers(owner: string, repo: string, addLog: Log
 
       if (!dialog) {
         addLog('[skip] Approach 1: dialog did not appear after clicking button', 'warn');
-        if (trigger.isReviewDeployments) return false;
+        if (trigger.isReviewDeployments) return FAILED;
       } else {
         addLog(`[skip]   dialog found: #${dialog.id}`);
 
@@ -145,7 +161,9 @@ export async function trySkipWaitTimers(owner: string, repo: string, addLog: Log
           'input[type="checkbox"][name="gate_request[]"], input.js-gates-dialog-environment-checkbox'
         );
         addLog(`[skip]   checkboxes found: ${checkboxes.length}`);
+        const environments: string[] = [];
         checkboxes.forEach((cb) => {
+          environments.push(environmentName(cb));
           if (!cb.checked) {
             cb.click();
             addLog(`[skip]   checked: ${cb.value} (${cb.id})`);
@@ -156,7 +174,7 @@ export async function trySkipWaitTimers(owner: string, repo: string, addLog: Log
 
         if (checkboxes.length === 0) {
           addLog('[skip] Approach 1: no checkboxes found in dialog', 'warn');
-          if (trigger.isReviewDeployments) return false;
+          if (trigger.isReviewDeployments) return FAILED;
         } else {
           const submitBtn = await waitForEnabledApproveButton(dialog);
           if (submitBtn) {
@@ -164,11 +182,11 @@ export async function trySkipWaitTimers(owner: string, repo: string, addLog: Log
             addLog(`[skip]   clicking approve: "${st.slice(0, 60)}"`, 'ok');
             submitBtn.click();
             await new Promise((r) => setTimeout(r, 3000));
-            return true;
+            return { ok: true, environments };
           }
 
           addLog('[skip] Approach 1: approve button did not become enabled', 'warn');
-          if (trigger.isReviewDeployments) return false;
+          if (trigger.isReviewDeployments) return FAILED;
         }
       }
     }
@@ -203,7 +221,7 @@ export async function trySkipWaitTimers(owner: string, repo: string, addLog: Log
         addLog(`[skip]   response: ${resp.status} ${resp.type} ${resp.url}`);
         if (resp.ok || resp.redirected) {
           addLog(`[skip] Approach 2: form submitted OK`, 'ok');
-          return true;
+          return { ok: true, environments: [] };
         }
         addLog(`[skip] Approach 2: form submit failed (${resp.status})`, 'warn');
       }
@@ -233,15 +251,15 @@ export async function trySkipWaitTimers(owner: string, repo: string, addLog: Log
       addLog(`[skip]   response: ${resp.status} ${resp.type} ${resp.url}`);
       if (resp.ok || resp.redirected) {
         addLog(`[skip] Approach 3: POST succeeded`, 'ok');
-        return true;
+        return { ok: true, environments: [] };
       }
       addLog(`[skip] Approach 3: POST failed (${resp.status})`, 'warn');
     }
 
     addLog('[skip] All approaches exhausted — no skip controls found', 'warn');
-    return false;
+    return FAILED;
   } catch (e) {
     addLog(`[skip] Error: ${(e as Error).message}`, 'warn');
-    return false;
+    return FAILED;
   }
 }

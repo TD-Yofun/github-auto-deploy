@@ -5,6 +5,10 @@
 export const ts = (): string =>
   new Date().toLocaleTimeString('en-US', { hour12: false });
 
+/** Local `YYYY-MM-DD HH:MM:SS` (sv-SE formats this way natively). */
+export const tsFull = (): string =>
+  new Date().toLocaleString('sv-SE');
+
 export function esc(s: string): string {
   const d = document.createElement('div');
   d.textContent = s;

@@ -2,6 +2,7 @@
  * Session persistence — save/load running state across page refreshes
  */
 import type { State } from './state';
+import type { Report } from './report';
 
 export function saveRunningState(runId: string, on: boolean): void {
   const stateKey = `aad_running_${runId}`;
@@ -16,24 +17,24 @@ export function wasRunning(runId: string): boolean {
 
 interface SessionData {
   approved: number;
-  skipped: number;
   events: State['sessionEvents'];
   startedAt: number;
   pollCycle: number;
   lastSkipKey: string;
   lastProgressAt: number;
+  pausedMs?: number;
 }
 
 export function saveSession(runId: string, state: State): void {
   const sessionKey = `aad_session_${runId}`;
   GM_setValue(sessionKey, {
     approved: state.sessionApproved,
-    skipped: state.sessionSkipped,
     events: state.sessionEvents,
     startedAt: state.monitorStartedAt,
     pollCycle: state.pollCycle,
     lastSkipKey: state.lastSkipKey,
     lastProgressAt: state.lastProgressAt,
+    pausedMs: state.pausedMs,
   } satisfies SessionData);
 }
 
@@ -42,16 +43,29 @@ export function loadSession(runId: string, state: State): boolean {
   const s = GM_getValue<SessionData | null>(sessionKey, null);
   if (!s) return false;
   state.sessionApproved = s.approved || 0;
-  state.sessionSkipped = s.skipped || 0;
   state.sessionEvents = s.events || [];
   state.monitorStartedAt = s.startedAt || Date.now();
   state.pollCycle = s.pollCycle || 0;
   state.lastSkipKey = s.lastSkipKey || '';
   state.lastProgressAt = s.lastProgressAt || 0;
+  state.pausedMs = s.pausedMs || 0;
   return true;
 }
 
 export function clearSession(runId: string): void {
   const sessionKey = `aad_session_${runId}`;
   GM_setValue(sessionKey, null);
+}
+
+/** The final report of a finished monitoring session, so it survives a page refresh. */
+export function saveReport(runId: string, report: Report): void {
+  GM_setValue(`aad_report_${runId}`, report);
+}
+
+export function loadReport(runId: string): Report | null {
+  return GM_getValue<Report | null>(`aad_report_${runId}`, null);
+}
+
+export function clearReport(runId: string): void {
+  GM_setValue(`aad_report_${runId}`, null);
 }

@@ -54,12 +54,34 @@
 |------|------|
 | **▶ Start / ⏹ Stop** | 切换监控状态 |
 | **⏸ Pause / ▶ Resume** | 暂停（不丢失计数器），仅运行时可见 |
-| **⏱ Interval** | 轮询间隔秒数（5–300，默认 15） |
-| **💾 Log** | 切换日志文件提示显示（无论开关如何，日志始终持久化） |
-| **📥** | 下载当前 run 的日志文件（`aad-run-<runId>.log`） |
+| **下载图标** | 下载当前 run 的日志文件（`aad-run-<runId>.log`） |
+| **设置图标** | 打开设置对话框 |
 | **📋 Copy MD** | （在总结报告中）将执行报告复制为 Markdown |
 
-> 运行期间 Interval 和 Log 控件被禁用，防止误改。
+### 设置
+
+GitHub 顶部 header 图标区（Issues / Pull requests / Inbox 旁）新增了设置入口；运行面板标题栏和 Tampermonkey 菜单（**⚙ Settings**）打开的是同一个对话框。修改即时生效。
+
+| 设置项 | 说明 |
+|--------|------|
+| **Polling interval** | 兜底轮询间隔秒数（5–300，默认 15），监控中修改也会在下一次 tick 生效 |
+| **Show log file path** | 切换面板中日志文件提示的显示（无论开关如何，日志始终持久化） |
+| **My pull requests** | 显示/隐藏 GitHub 首页侧栏的 PR 区块 |
+| **Organization repositories** | 显示/隐藏 GitHub 首页侧栏的组织仓库搜索 |
+
+### 执行报告与日志
+
+监控结束（workflow 进入终态或手动停止）时，面板会显示并保存报告，刷新页面后仍可查看：结果、**监控时长**（不含暂停，不等于 workflow 自身运行时长）、暂停时长、审批次数、**审批的环境名**、开始/结束时间和时间线。**Copy MD** 导出同一份数据的 Markdown。环境名取自 "Review deployments" 弹窗中的标签文本（取不到时回退为 gate id）。
+
+下载的日志（`aad-run-<runId>.log`）格式为 `[YYYY-MM-DD HH:MM:SS] [level] message`，面板里只显示时间。无论轮询间隔多少，心跳日志固定每 60 秒一条。
+
+### 存储清理
+
+每个 run 的数据（日志、会话、报告）存放在 Tampermonkey 存储中。脚本启动时会删除 14 天未使用的 run 数据；本功能上线之前遗留的数据，从该版本首次运行起保留 14 天后清除。
+
+### 强制更新
+
+每次加载 GitHub 页面时，脚本会对比自身 `@version` 与最新 Release（缓存 15 分钟）。版本过期时**所有功能被禁用**：不能监控（包括刷新后的自动恢复）、不显示首页组件、不能打开设置；顶部设置图标显示红点，点击弹出带安装链接的「Update required」对话框，运行面板也显示同样的提示。若版本检查本身失败（网络/GitHub 异常），脚本会放行，避免锁死正在进行的部署。长期不刷新的标签页要到下次加载页面才会重新检查。
 
 ### 面板交互
 
@@ -172,7 +194,8 @@ yarn preview:ui       # 本地预览 My PRs 小部件：http://127.0.0.1:5173
 src/
   main.ts              ← 入口 —— 串联模块、页面检测、生命周期
   core/
-    config.ts          ← 持久化配置（interval、saveLog 提示、panelVisible）
+    report.ts          ← 报告数据模型 + Markdown 导出（core）
+    config.ts          ← 持久化配置（interval、saveLog 提示、panelVisible、首页组件开关）
     state.ts           ← 运行时状态类型 + 看门狗常量
     log-store.ts       ← 始终开启的日志持久化（批量缓冲、防抖写盘）
     session.ts         ← 跨刷新的 session 持久化
@@ -184,8 +207,9 @@ src/
     skip-timers.ts     ← MutationObserver + 3 种 DOM 点击策略
   ui/
     styles.ts          ← 通过 GM_addStyle 注入编译后的 Sass
-    styles.scss        ← 面板和侧栏的 Sass 样式
-    ui.ts              ← 面板构建、渲染、事件绑定、总结 + Markdown 导出
+    styles.scss        ← Sass 入口；分模块样式位于 styles/（tokens、components、panel、settings、widgets）
+    settings.ts        ← 顶部设置入口 + 设置对话框
+    ui.ts              ← 面板构建、渲染、事件绑定、报告渲染
     pr-overview.ts     ← GitHub 首页 PR 小部件
     org-repo-search.ts  ← GitHub 首页组织仓库搜索
   utils/

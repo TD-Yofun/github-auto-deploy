@@ -5,6 +5,8 @@ export interface SessionEvent {
   ts: number;
   type: string;
   detail: string;
+  /** Environments approved by this event (approve events only). */
+  environments?: string[];
 }
 
 export interface State {
@@ -18,10 +20,13 @@ export interface State {
   lastSkipKey: string;
   monitorStartedAt: number;
   pollCycle: number;
-  sessionSkipped: number;
   sessionEvents: SessionEvent[];
   /** Timestamp of last successful approve/skip; used by watchdog to auto-reload when stuck */
   lastProgressAt: number;
+  /** Accumulated paused time (ms) and the start of the current pause (0 when not paused). */
+  pausedMs: number;
+  pausedAt: number;
+  monitorEndedAt: number;
 }
 
 export const GRACE_PERIOD = 90; // seconds to wait for re-run to propagate
@@ -38,8 +43,10 @@ export function createState(): State {
     lastSkipKey: '',
     monitorStartedAt: 0,
     pollCycle: 0,
-    sessionSkipped: 0,
     sessionEvents: [],
     lastProgressAt: 0,
+    pausedMs: 0,
+    pausedAt: 0,
+    monitorEndedAt: 0,
   };
 }

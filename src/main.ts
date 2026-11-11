@@ -6,20 +6,23 @@
  * workflow runs.
  */
 import { parseUrl, isDeployPRDPage, getWorkflowName, type RunParams } from './utils/url';
-import { loadConfig, saveConfigField } from './core/config';
+import { loadConfig, type Config } from './core/config';
 import { createState, WATCHDOG_TIMEOUT_MS, type State } from './core/state';
 import { initLogStore, downloadLog, clearStoredLogs } from './core/log-store';
-import { saveRunningState, wasRunning, saveSession, loadSession, clearSession } from './core/session';
+import { saveRunningState, wasRunning, saveSession, loadSession, clearSession, saveReport, loadReport, clearReport } from './core/session';
+import { buildReport } from './core/report';
+import { pruneStaleRuns, touchRun } from './core/storage-cleanup';
 import { scheduleTick, cancelTick } from './core/scheduler';
 import { findDeploymentTrigger, trySkipWaitTimers, observeSkipButton } from './api/skip-timers';
-import { checkLatestVersion, getCurrentVersion } from './core/version-check';
-import { esc } from './utils/helpers';
+import { checkLatestVersion, getCurrentVersion, type VersionCheckResult } from './core/version-check';
 import { injectStyles } from './ui/styles';
 import {
   buildUI, renderRunInfo, renderToggle, renderCounters,
-  setStatus, addLog, restoreLogsToPanel, generateSummary,
+  setStatus, addLog, restoreLogsToPanel, generateSummary, applyLogHint,
   type UIElements,
 } from './ui/ui';
+import { initSettings, openSettings, setUpdateRequired } from './ui/settings';
+import { renderUpdateNotice } from './ui/update-notice';
 import { mountPullRequestWidget } from './ui/pr-overview';
 import { mountOrganizationRepositorySearch } from './ui/org-repo-search';
 
@@ -32,11 +35,20 @@ let currentRunId: string | null = null;
 let currentMeta: { owner: string; repo: string; runId: string; workflow: string } | null = null;
 let skipInProgress = false;
 let skipCooldownUntil = 0;
+/**
+ * Forced-update gate. Nothing (panel actions, home widgets, resume) runs until the
+ * installed version is confirmed up to date. A failed check fails open so a GitHub/network
+ * hiccup can't lock users out of an in-flight deployment.
+ */
+type VersionGate = 'pending' | 'ok' | 'blocked';
+let versionGate: VersionGate = 'pending';
 let versionBlocked = false;
 let disconnectSkipObserver: (() => void) | null = null;
 let statusObserver: MutationObserver | null = null;
 let statusPollDebounce: ReturnType<typeof setTimeout> | null = null;
 let lastConclusion = '';
+let lastHeartbeatAt = 0;
+const HEARTBEAT_MS = 60_000;
 
 // ── Global error capture → log ─────────────────────────────
 window.addEventListener('error', (e) => {
@@ -64,9 +76,9 @@ function log(msg: string, level?: string): void {
   else console.log(`[AAD] ${msg}`);
 }
 
-function recordEvent(type: string, detail: string): void {
+function recordEvent(type: string, detail: string, environments?: string[]): void {
   if (!state.startRunId) return;
-  state.sessionEvents.push({ ts: Date.now(), type, detail });
+  state.sessionEvents.push({ ts: Date.now(), type, detail, ...(environments?.length ? { environments } : {}) });
   saveSession(state.startRunId, state);
 }
 
@@ -102,15 +114,19 @@ async function handleSkipDetected(): Promise<void> {
     log(`[detect] "${triggerLabel}" found in DOM`);
     const cur = parseUrl();
     if (!cur) return;
-    const ok = await trySkipWaitTimers(cur.owner, cur.repo, log, true);
+    const result = await trySkipWaitTimers(cur.owner, cur.repo, log, true);
     if (!abortIfDrifted()) return;
-    if (ok) {
-      log('✅ Click executed successfully', 'ok');
+    if (result.ok) {
+      const envs = result.environments;
+      log(envs.length ? `✅ Approved: ${envs.join(', ')}` : '✅ Click executed successfully', 'ok');
       state.sessionApproved++;
-      state.sessionSkipped++;
       state.totalApproved++;
       state.lastProgressAt = Date.now();
-      recordEvent('approve', `Approved deployments via "${triggerLabel}"`);
+      recordEvent(
+        'approve',
+        envs.length ? `Approved ${envs.length} environment(s): ${envs.join(', ')}` : `Approved deployments via "${triggerLabel}"`,
+        envs,
+      );
       if (el) renderCounters(el, state);
       saveSession(state.startRunId!, state);
       // brief cooldown to avoid double-firing
@@ -223,8 +239,9 @@ async function poll(): Promise<void> {
     handleSkipDetected();
   } else {
     if (el) setStatus(el, `🔄 Monitoring (cycle ${state.pollCycle})...`);
-    // Heartbeat every 4 cycles (≈ 1 min @15s) so the log proves the loop is alive
-    if (state.pollCycle % 4 === 0) {
+    // Time-based heartbeat (independent of the polling interval) proves the loop is alive
+    if (Date.now() - lastHeartbeatAt >= HEARTBEAT_MS) {
+      lastHeartbeatAt = Date.now();
       log(`💓 poll #${state.pollCycle} — status: ${conclusion || 'unknown'}`);
     }
   }
@@ -249,14 +266,18 @@ function start(): void {
   state.paused = false;
   state.startRunId = cur.runId;
   state.sessionApproved = 0;
-  state.sessionSkipped = 0;
   state.sessionEvents = [];
+  state.pausedMs = 0;
+  state.pausedAt = 0;
+  state.monitorEndedAt = 0;
+  lastHeartbeatAt = 0;
   state.lastSkipKey = '';
   state.pollCycle = 0;
   state.monitorStartedAt = Date.now();
   state.lastProgressAt = Date.now();
   lastConclusion = '';
   clearSession(cur.runId);
+  clearReport(cur.runId);
   clearStoredLogs();
   if (el) el.$log.innerHTML = '';
   saveRunningState(cur.runId, true);
@@ -281,6 +302,8 @@ function resume(): void {
   state.startRunId = cur.runId;
   loadSession(cur.runId, state);
   if (!state.lastProgressAt) state.lastProgressAt = Date.now();
+  lastHeartbeatAt = 0;
+  state.pausedAt = 0;
   saveRunningState(cur.runId, true);
   if (el) el.$summary.classList.remove('aad-visible');
   recordEvent('resume', `Resumed after page refresh`);
@@ -297,6 +320,7 @@ function resume(): void {
 function pauseMonitoring(): void {
   if (!state.running || state.paused) return;
   state.paused = true;
+  state.pausedAt = Date.now();
   stopSkipObserver();
   stopStatusObserver();
   cancelTick();
@@ -314,6 +338,8 @@ function pauseMonitoring(): void {
 function resumeMonitoring(): void {
   if (!state.running || !state.paused) return;
   state.paused = false;
+  state.pausedMs += Date.now() - state.pausedAt;
+  state.pausedAt = 0;
   state.lastProgressAt = Date.now(); // reset watchdog after pause
   log('▶ Resumed', 'ok');
   if (el) renderToggle(el, true, false);
@@ -387,6 +413,12 @@ function isTerminalConclusion(c: string): boolean {
 }
 
 function stop(manual = true): void {
+  // Close an open pause so it counts toward paused time, not monitoring time.
+  state.monitorEndedAt = Date.now();
+  if (state.paused && state.pausedAt) {
+    state.pausedMs += state.monitorEndedAt - state.pausedAt;
+    state.pausedAt = 0;
+  }
   state.running = false;
   state.paused = false;
   if (state.startRunId) saveRunningState(state.startRunId, false);
@@ -399,13 +431,24 @@ function stop(manual = true): void {
   }
   log(`⏹ Stopped (cycles=${state.pollCycle}, clicks=${state.sessionApproved})`);
   const conclusion = readRunConclusion() || (manual ? 'stopped' : 'unknown');
-  recordEvent('complete', `Stopped — ${conclusion} (duration=${Math.round((Date.now() - state.monitorStartedAt) / 1000)}s)`);
+  recordEvent('complete', `Stopped — ${conclusion} (active=${activeSeconds()}s)`);
   if (state.startRunId) saveSession(state.startRunId, state);
+  const report = buildReport(state, conclusion, currentMeta || undefined);
+  if (state.startRunId) {
+    saveReport(state.startRunId, report);
+    touchRun(state.startRunId);
+  }
   if (el) {
     renderToggle(el, false);
-    generateSummary(el, state, config, conclusion, currentMeta || undefined);
+    generateSummary(el, report);
   }
   notifyCompletion(conclusion, manual);
+}
+
+/** Monitoring seconds excluding pauses; valid once stop() has set monitorEndedAt. */
+function activeSeconds(): number {
+  const end = state.monitorEndedAt || Date.now();
+  return Math.max(0, Math.round((end - state.monitorStartedAt - state.pausedMs) / 1000));
 }
 
 function notifyCompletion(conclusion: string, manual: boolean): void {
@@ -416,7 +459,7 @@ function notifyCompletion(conclusion: string, manual: boolean): void {
                : conclusion === 'cancelled' ? '⚠️'
                : '🏁';
     const where = currentMeta ? `${currentMeta.owner}/${currentMeta.repo}` : 'workflow';
-    const text = `Run #${currentMeta?.runId || state.startRunId || ''} — ${conclusion}\n✅ ${state.sessionApproved} · ⏱ ${Math.round((Date.now() - state.monitorStartedAt) / 1000)}s`;
+    const text = `Run #${currentMeta?.runId || state.startRunId || ''} — ${conclusion}\n✅ ${state.sessionApproved} · ⏱ ${activeSeconds()}s`;
     GM_notification({
       title: `${icon} AAD — ${where}`,
       text,
@@ -438,23 +481,12 @@ function bindPanelEvents(panel: UIElements, runId: string): void {
     state.paused ? resumeMonitoring() : pauseMonitoring();
   });
 
-  panel.$intervalIn.addEventListener('change', () => {
-    config.interval = Math.max(5, parseInt(panel.$intervalIn.value, 10) || 15);
-    panel.$intervalIn.value = String(config.interval);
-    saveConfigField('interval', config.interval);
-  });
-
-  panel.$chkSaveLog.addEventListener('change', () => {
-    config.saveLog = panel.$chkSaveLog.checked;
-    saveConfigField('saveLog', config.saveLog);
-    panel.$logPath.classList.toggle('aad-visible', config.saveLog);
-    log(config.saveLog ? `💾 日志记录已开启 — 文件: aad-run-${runId}.log` : '💾 日志记录已关闭', config.saveLog ? 'ok' : 'info');
-  });
-
+  panel.$settingsBtn.addEventListener('click', openSettings);
   panel.$dlLogBtn.addEventListener('click', () => downloadLog(runId));
 }
 
 function buildPanelFor(params: RunParams): void {
+  touchRun(params.runId);
   initLogStore(params.runId);
   el = buildUI(params.runId, config);
   bindPanelEvents(el, params.runId);
@@ -468,14 +500,16 @@ function buildPanelFor(params: RunParams): void {
   log(`Ready — ${params.owner}/${params.repo} run #${params.runId}`);
   currentRunId = params.runId;
 
-  // Skip the version check when we're about to resume an in-flight run — the
-  // outdated-version banner would only add noise during active monitoring and
-  // the network call is wasted. The next idle mount (no resume) will check.
+  if (versionBlocked) {
+    renderBlockedPanel();
+    return;
+  }
   if (wasRunning(params.runId)) {
     log('🔄 Resuming after page refresh...', 'ok');
     resume();
   } else {
-    runVersionCheck();
+    const finished = loadReport(params.runId);
+    if (finished) generateSummary(el, finished);
   }
 }
 
@@ -490,50 +524,56 @@ function teardownPanel(): void {
   currentMeta = null;
 }
 
-async function runVersionCheck(): Promise<void> {
-  if (!el) return;
-  const currentVersion = getCurrentVersion();
+/** Run once per page load (the check itself is cached for 15 min), then (re)apply the page state. */
+async function runVersionGate(): Promise<void> {
   try {
-    const v = await checkLatestVersion(currentVersion);
+    const v = await checkLatestVersion(getCurrentVersion());
     if (v.outdated) {
-      versionBlocked = true;
-      const installUrl = `https://github.com/TD-Yofun/github-auto-deploy/releases/latest/download/auto-approve-deploy.min.user.js`;
-      const notesHtml = v.releaseNotes
-        ? `<details open class="aad-version-notes"><summary class="aad-version-notes-summary">📋 v${esc(v.latest)} 更新内容</summary>
-             <div class="aad-version-notes-body">${esc(v.releaseNotes)}</div>
-           </details>`
-        : '';
-      el.$info.innerHTML = `<div class="aad-version-error">⛔ 脚本版本过期，请更新后使用</div>
-        <div class="aad-version-current">当前: <code>${esc(v.current)}</code> · 最新: <code>${esc(v.latest)}</code></div>
-        <div class="aad-version-actions">
-          <a href="${esc(installUrl)}" target="_blank" rel="noopener" class="aad-version-install">📥 安装最新版本</a>
-          <a href="${esc(v.releaseUrl)}" target="_blank" rel="noopener" class="aad-version-release">查看 Release 页</a>
-        </div>
-        ${notesHtml}`;
-      log(`⛔ Outdated: ${v.current} → ${v.latest}. Update required.`, 'err');
-      // Disable all functional controls — only the install link remains usable
-      el.$toggleBtn.disabled = true;
-      el.$toggleBtn.textContent = '⛔ Outdated';
-      el.$intervalIn.disabled = true;
-      el.$chkSaveLog.disabled = true;
-      el.$dlLogBtn.disabled = true;
-      return;
+      blockForUpdate(v);
+    } else {
+      versionGate = 'ok';
+      console.log(`[AAD] Version check passed (${v.current})`);
     }
-    log(`✅ Version check passed (${v.current})`, 'ok');
   } catch (e) {
-    log(`⚠️ Version check failed: ${(e as Error).message} — proceeding anyway`, 'warn');
+    versionGate = 'ok';
+    console.warn(`[AAD] Version check failed: ${(e as Error).message} — proceeding anyway`);
   }
+  checkPage();
+}
+
+let blockedVersion: VersionCheckResult | null = null;
+
+function blockForUpdate(v: VersionCheckResult): void {
+  versionGate = 'blocked';
+  versionBlocked = true;
+  blockedVersion = v;
+  setUpdateRequired(v);
+  if (state.running) stop();
+  console.error(`[AAD] Outdated: ${v.current} → ${v.latest}. Update required.`);
+}
+
+/** Replace the run panel's controls with the update notice. */
+function renderBlockedPanel(): void {
+  if (!el || !blockedVersion) return;
+  el.$info.innerHTML = renderUpdateNotice(blockedVersion);
+  el.$toggleBtn.disabled = true;
+  el.$toggleBtn.textContent = '⛔ Outdated';
+  el.$pauseBtn.hidden = true;
+  log(`⛔ Outdated: ${blockedVersion.current} → ${blockedVersion.latest}. Update required.`, 'err');
 }
 
 // ── SPA-aware page watcher ─────────────────────────────────
 function checkPage(): void {
+  if (versionGate === 'pending') return; // wait for the version check before enabling anything
   const params = parseUrl();
   const onTarget = !!params && isDeployPRDPage();
 
   if (!onTarget) {
     if (el) teardownPanel();
-    mountPullRequestWidget(location.pathname === '/');
-    mountOrganizationRepositorySearch(location.pathname === '/');
+    const onHome = location.pathname === '/';
+    const featuresOn = versionGate === 'ok';
+    mountPullRequestWidget(featuresOn && onHome && config.showPullRequests);
+    mountOrganizationRepositorySearch(featuresOn && onHome && config.showOrganizationRepos);
     return;
   }
 
@@ -545,6 +585,31 @@ function checkPage(): void {
   mountPullRequestWidget(false);
   mountOrganizationRepositorySearch(false);
 }
+
+// ── Settings ───────────────────────────────────────────────
+function onConfigChange(key: keyof Config): void {
+  switch (key) {
+    case 'saveLog':
+      if (el) applyLogHint(el, config.saveLog);
+      log(config.saveLog ? '💾 日志记录已开启' : '💾 日志记录已关闭', config.saveLog ? 'ok' : 'info');
+      break;
+    case 'showPullRequests':
+    case 'showOrganizationRepos':
+      checkPage();
+      break;
+    // `interval` is read on every poll tick, nothing to apply.
+  }
+}
+initSettings(config, onConfigChange);
+
+try {
+  const removed = pruneStaleRuns();
+  if (removed > 0) console.log(`[AAD] Cleaned up data of ${removed} stale run(s)`);
+} catch (e) {
+  console.warn(`[AAD] Storage cleanup failed: ${(e as Error).message}`);
+}
+
+void runVersionGate();
 
 // Initial + repeated checks (page may load Deploy (PRD) header after document-idle)
 checkPage();
@@ -571,3 +636,4 @@ setInterval(() => {
 // ── Tampermonkey menu commands ─────────────────────────────
 GM_registerMenuCommand('🚀 Start Monitoring', () => { if (el) start(); });
 GM_registerMenuCommand('⏹ Stop Monitoring', () => { if (el) stop(); });
+GM_registerMenuCommand('⚙ Settings', openSettings);

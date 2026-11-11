@@ -1,0 +1,94 @@
+/* ── Settings dialog ──────────────────────────────────── */
+#aad-settings-overlay {
+  position: fixed !important;
+  inset: 0;
+  z-index: 2147483647 !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(1, 4, 9, .5);
+  font: 14px/1.5 var(--aad-font);
+}
+
+#aad-settings {
+  display: flex;
+  flex-direction: column;
+  width: 480px;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  color: var(--aad-fg);
+  background: var(--aad-bg);
+  border: 1px solid var(--aad-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(1, 4, 9, .32);
+}
+
+.aad-st-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 12px 12px 16px;
+  border-bottom: 1px solid var(--aad-border);
+  h2 { margin: 0; font-size: 14px; font-weight: 600; }
+}
+
+.aad-st-body { padding: 0 16px; overflow-y: auto; }
+
+.aad-st-section {
+  padding: 16px 0;
+  & + & { border-top: 1px solid var(--aad-border-muted); }
+  h3 {
+    margin: 0 0 4px;
+    color: var(--aad-fg-muted);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .3px;
+    text-transform: uppercase;
+  }
+}
+
+.aad-st-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+  label { font-weight: 600; cursor: pointer; }
+  p { margin: 2px 0 0; color: var(--aad-fg-muted); font-size: 12px; }
+}
+.aad-st-label { min-width: 0; }
+.aad-st-control {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  padding-top: 2px;
+  color: var(--aad-fg-muted);
+  input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--aad-primary-bg); cursor: pointer; }
+  input[type="number"] {
+    width: 64px;
+    padding: 4px 8px;
+    border: 1px solid var(--aad-border);
+    border-radius: 6px;
+    color: var(--aad-fg);
+    background: var(--aad-bg);
+    font: inherit;
+    text-align: right;
+  }
+}
+
+.aad-st-footer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-top: 1px solid var(--aad-border);
+  color: var(--aad-fg-muted);
+  background: var(--aad-bg-inset);
+  font-size: 12px;
+  a { color: var(--aad-accent); text-decoration: none; &:hover { text-decoration: underline; } }
+}

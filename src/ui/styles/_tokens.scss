@@ -1,0 +1,22 @@
+/* Theme tokens: follow GitHub's Primer variables so light/dark modes just work. */
+#aad-panel,
+#aad-tab,
+#aad-settings-overlay {
+  --aad-bg: var(--bgColor-default, #fff);
+  --aad-bg-inset: var(--bgColor-muted, #f6f8fa);
+  --aad-bg-hover: var(--control-transparent-bgColor-hover, rgba(129, 139, 152, .12));
+  --aad-border: var(--borderColor-default, #d1d9e0);
+  --aad-border-muted: var(--borderColor-muted, #d1d9e0b3);
+  --aad-fg: var(--fgColor-default, #1f2328);
+  --aad-fg-muted: var(--fgColor-muted, #59636e);
+  --aad-accent: var(--fgColor-accent, #0969da);
+  --aad-success: var(--fgColor-success, #1a7f37);
+  --aad-danger: var(--fgColor-danger, #d1242f);
+  --aad-attention: var(--fgColor-attention, #9a6700);
+  --aad-primary-bg: var(--button-primary-bgColor-rest, #1f883d);
+  --aad-primary-bg-hover: var(--button-primary-bgColor-hover, #1c8139);
+  --aad-danger-bg: var(--button-danger-bgColor-hover, #a40e26);
+  --aad-focus: var(--focus-outlineColor, #0969da);
+  --aad-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  --aad-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}

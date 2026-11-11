@@ -1,10 +1,12 @@
 /**
  * UI — build panel, bindEvents, render functions
  */
-import { esc, ts, formatDuration } from '../utils/helpers';
+import { esc, ts, tsFull, formatDuration } from '../utils/helpers';
+import { clockTime, eventIcon, reportToMarkdown, type Report } from '../core/report';
 import { appendLogToStore, getStoredLogs } from '../core/log-store';
 import { Config, saveConfigField } from '../core/config';
 import type { State } from '../core/state';
+import { ICON_CHEVRON_RIGHT, ICON_DOWNLOAD, ICON_SETTINGS } from './icons';
 
 export interface UIElements {
   panel: HTMLDivElement;
@@ -12,9 +14,8 @@ export interface UIElements {
   $info: HTMLElement;
   $toggleBtn: HTMLButtonElement;
   $pauseBtn: HTMLButtonElement;
-  $intervalIn: HTMLInputElement;
-  $chkSaveLog: HTMLInputElement;
   $dlLogBtn: HTMLButtonElement;
+  $settingsBtn: HTMLButtonElement;
   $logPath: HTMLElement;
   $statusText: HTMLElement;
   $sessionCnt: HTMLElement;
@@ -28,21 +29,18 @@ export function buildUI(runId: string, config: Config): UIElements {
   panel.id = 'aad-panel';
   panel.innerHTML = `
     <div id="aad-header">
-      <span class="aad-title">🚀 Auto-Approve Deploy</span>
+      <span class="aad-title">Auto-Approve Deploy</span>
       <span class="aad-btns">
-        <button id="aad-collapse-btn" title="Collapse panel">▶</button>
+        <button id="aad-dl-log-btn" class="aad-icon-btn" title="Download log" aria-label="Download log">${ICON_DOWNLOAD}</button>
+        <button id="aad-settings-btn" class="aad-icon-btn" title="Settings" aria-label="Settings">${ICON_SETTINGS}</button>
+        <button id="aad-collapse-btn" class="aad-icon-btn" title="Collapse panel" aria-label="Collapse panel">${ICON_CHEVRON_RIGHT}</button>
       </span>
     </div>
     <div id="aad-body">
       <div id="aad-info">Loading run info...</div>
       <div id="aad-controls">
-        <button id="aad-toggle-btn" class="start">▶ Start</button>
-        <button id="aad-pause-btn" hidden>⏸ Pause</button>
-        <div id="aad-interval-wrap">
-          ⏱ <input id="aad-interval-input" type="number" min="5" max="300" value="${config.interval}">s
-        </div>
-        <label><input type="checkbox" id="aad-chk-savelog" ${config.saveLog ? 'checked' : ''}> 💾 Log</label>
-        <button id="aad-dl-log-btn" title="Download log file">📥</button>
+        <button id="aad-toggle-btn" class="aad-btn aad-btn--primary">Start</button>
+        <button id="aad-pause-btn" class="aad-btn" hidden>Pause</button>
       </div>
       <div id="aad-status-bar">
         <span id="aad-status-text">Idle</span>
@@ -59,6 +57,8 @@ export function buildUI(runId: string, config: Config): UIElements {
   tab.id = 'aad-tab';
   tab.className = 'shifted';
   tab.textContent = '◀ AAD';
+  tab.setAttribute('role', 'button');
+  tab.tabIndex = 0;
   tab.title = 'Toggle Auto-Approve Deploy panel';
   document.body.appendChild(tab);
 
@@ -68,9 +68,8 @@ export function buildUI(runId: string, config: Config): UIElements {
     $info: document.getElementById('aad-info')!,
     $toggleBtn: document.getElementById('aad-toggle-btn') as HTMLButtonElement,
     $pauseBtn: document.getElementById('aad-pause-btn') as HTMLButtonElement,
-    $intervalIn: document.getElementById('aad-interval-input') as HTMLInputElement,
-    $chkSaveLog: document.getElementById('aad-chk-savelog') as HTMLInputElement,
     $dlLogBtn: document.getElementById('aad-dl-log-btn') as HTMLButtonElement,
+    $settingsBtn: document.getElementById('aad-settings-btn') as HTMLButtonElement,
     $logPath: document.getElementById('aad-log-path')!,
     $statusText: document.getElementById('aad-status-text')!,
     $sessionCnt: document.getElementById('aad-session-cnt')!,
@@ -79,7 +78,7 @@ export function buildUI(runId: string, config: Config): UIElements {
     $summary: document.getElementById('aad-summary')!,
   };
 
-  el.$logPath.classList.toggle('aad-visible', config.saveLog);
+  applyLogHint(el, config.saveLog);
 
   // Restore panel visibility from config
   if (!config.panelVisible) {
@@ -97,6 +96,9 @@ export function buildUI(runId: string, config: Config): UIElements {
     saveConfigField('panelVisible', config.panelVisible);
   }
   tab.addEventListener('click', togglePanel);
+  tab.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePanel(); }
+  });
   document.getElementById('aad-collapse-btn')!.addEventListener('click', togglePanel);
 
   return el;
@@ -111,18 +113,15 @@ export function renderRunInfo(el: UIElements, info: { owner: string; repo: strin
 }
 
 export function renderToggle(el: UIElements, running: boolean, paused = false): void {
-  if (running) {
-    el.$toggleBtn.textContent = '⏹ Stop';
-    el.$toggleBtn.className = 'stop';
-    el.$pauseBtn.hidden = false;
-    el.$pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause';
-    setControlsEnabled(el, false);
-  } else {
-    el.$toggleBtn.textContent = '▶ Start';
-    el.$toggleBtn.className = 'start';
-    el.$pauseBtn.hidden = true;
-    setControlsEnabled(el, true);
-  }
+  el.$toggleBtn.textContent = running ? 'Stop' : 'Start';
+  el.$toggleBtn.className = `aad-btn ${running ? 'aad-btn--danger' : 'aad-btn--primary'}`;
+  el.$pauseBtn.hidden = !running;
+  el.$pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+}
+
+/** Show or hide the log-file hint (driven by the `saveLog` setting). */
+export function applyLogHint(el: UIElements, visible: boolean): void {
+  el.$logPath.classList.toggle('aad-visible', visible);
 }
 
 export function renderCounters(el: UIElements, state: State): void {
@@ -143,7 +142,8 @@ export function addLog(el: UIElements, msg: string, level = 'info'): void {
   consoleFn(`${tag} ${msg}`);
 
   const timeStr = ts();
-  appendLogToStore(`[${timeStr}] [${level}] ${msg}`);
+  // Persist with the full date so downloaded logs stay unambiguous across days.
+  appendLogToStore(`[${tsFull()}] [${level}] ${msg}`);
 
   const entry = document.createElement('div');
   entry.className = 'aad-log-entry';
@@ -175,7 +175,7 @@ export function restoreLogsToPanel(el: UIElements): void {
     const entry = document.createElement('div');
     entry.className = 'aad-log-entry';
     if (m) {
-      entry.innerHTML = `<span class="aad-log-time">${esc(m[1])}</span> <span class="aad-log-${m[2]}">${esc(m[3])}</span>`;
+      entry.innerHTML = `<span class="aad-log-time">${esc(m[1].replace(/^\d{4}-\d{2}-\d{2} /, ''))}</span> <span class="aad-log-${m[2]}">${esc(m[3])}</span>`;
     } else {
       entry.innerHTML = `<span class="aad-log-info">${esc(line)}</span>`;
     }
@@ -189,93 +189,33 @@ export function restoreLogsToPanel(el: UIElements): void {
   el.$log.scrollTop = el.$log.scrollHeight;
 }
 
-export function summaryToMarkdown(state: State, config: Config, conclusion: string, info?: { owner?: string; repo?: string; runId?: string; workflow?: string }): string {
-  const duration = Date.now() - state.monitorStartedAt;
-  const head = info?.workflow ? `## 📊 ${info.workflow} — Run #${info.runId || ''}` : `## 📊 执行报告`;
-  const where = info?.owner && info?.repo
-    ? `\n**Repository:** ${info.owner}/${info.repo}` +
-      (info.runId ? `  \n**Run:** [#${info.runId}](https://github.com/${info.owner}/${info.repo}/actions/runs/${info.runId})` : '')
-    : '';
-  const lines = [
-    head,
-    where,
-    '',
-    `- **结果:** ${conclusion || 'unknown'}`,
-    `- **总耗时:** ${formatDuration(duration)}`,
-    `- **轮询次数:** ${state.pollCycle}`,
-    `- **审批通过:** ${state.sessionApproved}`,
-    `- **跳过计时器:** ${state.sessionSkipped}`,
-    `- **轮询间隔:** ${config.interval}s`,
-    `- **开始时间:** ${new Date(state.monitorStartedAt).toLocaleString()}`,
-  ];
-  if (state.sessionEvents.length > 0) {
-    lines.push('', '### 📋 执行时间线', '');
-    state.sessionEvents.forEach((ev) => {
-      const t = new Date(ev.ts).toLocaleTimeString('en-US', { hour12: false });
-      const icon = ev.type === 'approve' ? '✅' :
-                   ev.type === 'skip' ? '⏭' :
-                   ev.type === 'error' ? '❌' :
-                   ev.type === 'start' ? '🚀' :
-                   ev.type === 'resume' ? '🔄' :
-                   ev.type === 'complete' ? '🏁' : '📌';
-      lines.push(`- \`${t}\` ${icon} ${ev.detail}`);
-    });
-  }
-  return lines.join('\n') + '\n';
-}
+export function generateSummary(el: UIElements, report: Report): void {
+  const timelineHtml = report.events.map((ev) =>
+    `<div class="aad-timeline-item"><span class="aad-log-time">${clockTime(ev.ts)}</span> ${eventIcon(ev.type)} ${esc(ev.detail)}</div>`
+  ).join('');
 
-export function generateSummary(el: UIElements, state: State, config: Config, conclusion: string, info?: { owner?: string; repo?: string; runId?: string; workflow?: string }): void {
-  const duration = Date.now() - state.monitorStartedAt;
-
-  const timelineHtml = state.sessionEvents.map((ev) => {
-    const t = new Date(ev.ts).toLocaleTimeString('en-US', { hour12: false });
-    const icon = ev.type === 'approve' ? '✅' :
-                 ev.type === 'skip' ? '⏭' :
-                 ev.type === 'error' ? '❌' :
-                 ev.type === 'start' ? '🚀' :
-                 ev.type === 'resume' ? '🔄' :
-                 ev.type === 'complete' ? '🏁' : '📌';
-    return `<div class="aad-timeline-item"><span class="aad-log-time">${t}</span> ${icon} ${esc(ev.detail)}</div>`;
-  }).join('');
-
-  const ok = conclusion === 'success';
-  const statusIcon = ok ? '✅' : '❌';
+  const ok = report.conclusion === 'success';
   const statusClass = ok ? 'aad-log-ok' : 'aad-log-err';
+  const item = (label: string, value: string, wide = false) =>
+    `<div class="aad-summary-item${wide ? ' aad-summary-item--wide' : ''}"><span class="aad-summary-label">${label}</span><span>${value}</span></div>`;
 
   el.$summary.innerHTML = `
     <div class="aad-summary-header">
       <span>📊 执行报告</span>
       <span class="aad-summary-actions">
-        <button id="aad-copy-summary-btn" title="复制为 Markdown">📋 Copy MD</button>
+        <button id="aad-copy-summary-btn" class="aad-btn aad-btn--sm" title="复制为 Markdown">📋 Copy MD</button>
       </span>
     </div>
     <div class="aad-summary-grid">
-      <div class="aad-summary-item">
-        <span class="aad-summary-label">结果</span>
-        <span class="${statusClass}">${statusIcon} ${esc(conclusion || 'unknown')}</span>
-      </div>
-      <div class="aad-summary-item">
-        <span class="aad-summary-label">总耗时</span>
-        <span>${formatDuration(duration)}</span>
-      </div>
-      <div class="aad-summary-item">
-        <span class="aad-summary-label">轮询次数</span>
-        <span>${state.pollCycle}</span>
-      </div>
-      <div class="aad-summary-item">
-        <span class="aad-summary-label">审批通过</span>
-        <span class="aad-log-ok">${state.sessionApproved}</span>
-      </div>
-      <div class="aad-summary-item">
-        <span class="aad-summary-label">跳过计时器</span>
-        <span>${state.sessionSkipped}</span>
-      </div>
-      <div class="aad-summary-item">
-        <span class="aad-summary-label">轮询间隔</span>
-        <span>${config.interval}s</span>
-      </div>
+      ${item('结果', `<span class="${statusClass}">${ok ? '✅' : '❌'} ${esc(report.conclusion)}</span>`)}
+      ${item('审批次数', `<span class="aad-log-ok">${report.approvals}</span>`)}
+      ${item('监控时长', formatDuration(report.activeMs))}
+      ${report.pausedMs > 0 ? item('暂停时长', formatDuration(report.pausedMs)) : ''}
+      ${report.environments.length ? item('审批环境', esc(report.environments.join(', ')), true) : ''}
+      ${item('开始', new Date(report.startedAt).toLocaleString())}
+      ${item('结束', new Date(report.endedAt).toLocaleString())}
     </div>
-    ${state.sessionEvents.length > 0 ? `
+    ${report.events.length > 0 ? `
       <div class="aad-summary-header aad-summary-timeline-header"><span>📋 执行时间线</span></div>
       <div class="aad-timeline">${timelineHtml}</div>
     ` : ''}
@@ -284,7 +224,7 @@ export function generateSummary(el: UIElements, state: State, config: Config, co
 
   const copyBtn = el.$summary.querySelector<HTMLButtonElement>('#aad-copy-summary-btn');
   copyBtn?.addEventListener('click', async () => {
-    const md = summaryToMarkdown(state, config, conclusion, info);
+    const md = reportToMarkdown(report);
     try {
       await navigator.clipboard.writeText(md);
       copyBtn.textContent = '✓ Copied!';
@@ -298,18 +238,4 @@ export function generateSummary(el: UIElements, state: State, config: Config, co
       window.prompt('复制以下 Markdown:', md);
     }
   });
-}
-
-function setControlsEnabled(el: UIElements, enabled: boolean): void {
-  const checkboxes = [el.$chkSaveLog];
-  checkboxes.forEach((cb) => {
-    cb.disabled = !enabled;
-    const label = cb.closest('label');
-    if (label) label.classList.toggle('aad-disabled', !enabled);
-  });
-  el.$intervalIn.disabled = !enabled;
-  const wrap = el.$intervalIn.closest('#aad-interval-wrap');
-  if (wrap) wrap.classList.toggle('aad-disabled', !enabled);
-  el.$dlLogBtn.disabled = !enabled;
-  el.$dlLogBtn.classList.toggle('aad-disabled', !enabled);
 }

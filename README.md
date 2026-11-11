@@ -54,12 +54,34 @@ Built with **Vite + TypeScript**, outputs `build/auto-approve-deploy.user.js` (d
 |---------|-------------|
 | **▶ Start / ⏹ Stop** | Toggle monitoring |
 | **⏸ Pause / ▶ Resume** | Suspend without losing counters; visible only while running |
-| **⏱ Interval** | Poll interval in seconds (5–300, default 15) |
-| **💾 Log** | Toggle the log-file hint display (logs are always persisted regardless) |
-| **📥** | Download the current run's log file (`aad-run-<runId>.log`) |
+| **Download icon** | Download the current run's log file (`aad-run-<runId>.log`) |
+| **Settings icon** | Open the settings dialog |
 | **📋 Copy MD** | (in summary report) copy the execution report as Markdown |
 
-> Interval and log controls are disabled during execution to prevent accidental changes.
+### Settings
+
+A settings icon is added to GitHub's top header (next to the Issues / Pull requests / Inbox icons); the run panel header and the Tampermonkey menu (**⚙ Settings**) open the same dialog. Changes apply immediately.
+
+| Setting | Description |
+|---------|-------------|
+| **Polling interval** | Fallback poll interval in seconds (5–300, default 15); takes effect on the next tick, even while monitoring |
+| **Show log file path** | Toggle the log-file hint in the panel (logs are always persisted regardless) |
+| **My pull requests** | Show/hide the pull request section on the GitHub home sidebar |
+| **Organization repositories** | Show/hide the organization repository search on the GitHub home sidebar |
+
+### Execution Report & Logs
+
+When monitoring stops (workflow finished or manual stop) a report is shown in the panel and saved, so it is still there after a refresh: result, **monitoring time** (pauses excluded — not the workflow's own run time), pause time, number of approvals, **approved environment names**, start/end time and a timeline. **Copy MD** exports the same data as Markdown. Environment names come from the "Review deployments" dialog labels (falling back to the gate id).
+
+Downloaded logs (`aad-run-<runId>.log`) use `[YYYY-MM-DD HH:MM:SS] [level] message`; the panel shows time only. A heartbeat line is logged every 60 seconds regardless of the polling interval.
+
+### Storage Cleanup
+
+Per-run data (log, session, report) is stored in Tampermonkey storage. On startup the script deletes data of runs not touched for 14 days. Data created before this feature existed is kept for 14 days from the first run of this version, then removed.
+
+### Forced Updates
+
+On every GitHub page load the script compares its `@version` with the latest release (cached for 15 minutes). If it is outdated, **all features are disabled** — no monitoring (including resuming after a refresh), no home-page widgets, no settings; the header settings icon shows a red dot and opens an "Update required" dialog with the install link, and the run panel shows the same notice. If the check itself fails (network/GitHub error), the script proceeds so an in-flight deployment is never locked out. A tab that stays open across a new release is only re-checked on the next page load.
 
 ### Panel Interactions
 
@@ -175,7 +197,8 @@ After that, refresh any matching GitHub page after changing source files.
 src/
   main.ts              ← Entry point — wires modules, page detection, lifecycle
   core/
-    config.ts          ← Persistent config (interval, saveLog hint, panelVisible)
+    report.ts          ← Report data model + Markdown export (core)
+    config.ts          ← Persistent config (interval, saveLog hint, panelVisible, home widget toggles)
     state.ts           ← Runtime state types + watchdog constant
     log-store.ts       ← Always-on log persistence (batch buffer, debounced flush)
     session.ts         ← Session persistence across refreshes
@@ -187,8 +210,9 @@ src/
     skip-timers.ts     ← MutationObserver + 3-approach DOM-based clicker
   ui/
     styles.ts          ← Injects compiled Sass through GM_addStyle
-    styles.scss        ← Panel and sidebar Sass styles
-    ui.ts              ← Panel build, render, event binding, summary + Markdown export
+    styles.scss        ← Sass entry; partials in styles/ (tokens, components, panel, settings, widgets)
+    settings.ts        ← Header settings entry + settings dialog
+    ui.ts              ← Panel build, render, event binding, report rendering
     pr-overview.ts     ← GitHub home pull request widget
     org-repo-search.ts  ← GitHub home organization repository search
   utils/

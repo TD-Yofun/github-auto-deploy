@@ -19,6 +19,8 @@ const userscriptConfig: MonkeyUserScript = {
     'GM_xmlhttpRequest',
     'GM_getValue',
     'GM_setValue',
+    'GM_deleteValue',
+    'GM_listValues',
     'GM_addStyle',
     'GM_registerMenuCommand',
     'GM_notification',
