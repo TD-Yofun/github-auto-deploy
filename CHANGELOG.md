@@ -1,5 +1,17 @@
 
 
+## [1.0.19](https://github.com/TD-Yofun/github-auto-deploy/compare/v1.0.18...v1.0.19) (2026-11-21)
+
+
+### Features
+
+* add work dashboard, tabbed settings and manual update check ([b58ea7f](https://github.com/TD-Yofun/github-auto-deploy/commit/b58ea7f618802cea87dde3b2eeaf502d33a372ff))
+
+
+### Documentation
+
+* drop stray -- from release commands ([89289e0](https://github.com/TD-Yofun/github-auto-deploy/commit/89289e04f6d2963a21241e665adde71a53a2f830))
+
 ## [1.0.18](https://github.com/TD-Yofun/github-auto-deploy/compare/v1.0.17...v1.0.18) (2026-11-11)
 
 
