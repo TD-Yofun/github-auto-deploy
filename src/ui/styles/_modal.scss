@@ -1,0 +1,76 @@
+/* ── Modals (settings, CI checks): shared overlay, blurred backdrop ── */
+.aad-modal-overlay {
+  position: fixed !important;
+  inset: 0;
+  z-index: 2147483647 !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(1, 4, 9, .45);
+  // Blur what is behind so the dialog stands out; the page itself is scroll-locked (scroll-lock.ts).
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  overscroll-behavior: contain;
+  font: 14px/1.5 var(--aad-font);
+}
+
+.aad-modal {
+  display: flex;
+  flex-direction: column;
+  width: 720px;
+  max-width: 100%;
+  max-height: min(80vh, 760px);
+  overflow: hidden;
+  color: var(--aad-fg);
+  background: var(--aad-bg);
+  border: 1px solid var(--aad-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(1, 4, 9, .32);
+}
+
+.aad-modal-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 12px 12px 16px;
+  border-bottom: 1px solid var(--aad-border);
+  h2 { margin: 0; font-size: 14px; font-weight: 600; }
+  .aad-link { display: block; max-width: 620px; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+}
+.aad-modal-heading { min-width: 0; }
+.aad-modal-summary { display: flex; flex-shrink: 0; flex-wrap: wrap; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--aad-border-muted); }
+.aad-modal-body { padding: 4px 16px 12px; overflow-y: auto; overscroll-behavior: contain; }
+.aad-modal-footer { flex-shrink: 0; padding: 10px 16px; border-top: 1px solid var(--aad-border); background: var(--aad-bg-inset); }
+
+.aad-check-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 14px 0 4px;
+  color: var(--aad-fg-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  span { padding: 0 6px; border-radius: 10px; background: var(--aad-bg-hover); font-weight: 500; }
+}
+.aad-check-list { margin: 0; padding: 0; list-style: none; }
+.aad-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  & + & { border-top: 1px solid var(--aad-border-muted); }
+  &--success .aad-check-icon { color: var(--aad-success); }
+  &--danger .aad-check-icon { color: var(--aad-danger); }
+  &--attention .aad-check-icon { color: var(--aad-attention); }
+  &--muted .aad-check-icon { color: var(--aad-fg-muted); }
+}
+.aad-check-icon { display: inline-flex; flex-shrink: 0; width: 16px; }
+.aad-check-main { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.aad-check-name { color: var(--aad-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.aad-check-name { text-decoration: none; &:hover { color: var(--aad-accent); text-decoration: underline; } }
+.aad-check-detail { color: var(--aad-fg-muted); font-size: 12px; }

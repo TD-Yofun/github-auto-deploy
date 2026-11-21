@@ -1,0 +1,293 @@
+/* ── Work dashboard (replaces the GitHub home page) ───── */
+// GitHub's own home content is hidden, not removed: dropping the class restores it.
+html.aad-home .application-main > :not(#aad-dashboard) { display: none !important; }
+
+#aad-dashboard {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 24px 24px 48px;
+  color: var(--aad-fg);
+  font: 14px/1.5 var(--aad-font);
+  * { box-sizing: border-box; }
+}
+
+// The search box spans the full content width, so its edges line up with the outer card edges.
+.aad-dash-top { margin-bottom: 20px; }
+
+.aad-dash-grid {
+  display: grid;
+  gap: 16px;
+  // Three cards of equal width; below ~960px they wrap to two columns (the last card spans both)
+  // and below ~640px to one.
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  @media (max-width: 959px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+  }
+  @media (max-width: 639px) { grid-template-columns: minmax(0, 1fr); }
+}
+
+// Heading kept for screen readers only.
+.aad-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+// Cards in a row share one height (the tallest, capped) and scroll inside, so one long list
+// never stretches the page while its neighbours stay short.
+.aad-dash-grid { align-items: stretch; }
+
+/* ── Cards ────────────────────────────────────────────── */
+.aad-card {
+  min-width: 0;
+  background: var(--aad-bg);
+  border: 1px solid var(--aad-border);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 240px;
+  max-height: min(72vh, 760px);
+}
+.aad-card-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--aad-bg-inset);
+  border-bottom: 1px solid var(--aad-border);
+  h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; font-weight: 600; }
+}
+.aad-card-actions { display: flex; align-items: center; gap: 4px; }
+.aad-card-body {
+  flex: 1;
+  min-height: 0;
+  padding: 8px 16px 12px;
+  overflow-y: auto;
+  &::-webkit-scrollbar { width: 8px; }
+  &::-webkit-scrollbar-thumb { background: var(--aad-border); border-radius: 4px; }
+}
+
+.aad-link { color: var(--aad-accent); font-size: 12px; text-decoration: none; &:hover { text-decoration: underline; } }
+.aad-empty { padding: 16px 0; color: var(--aad-fg-muted); text-align: center; &--error { color: var(--aad-danger); } }
+.aad-hint { padding: 4px 2px 0; color: var(--aad-fg-muted); font-size: 12px; &--center { padding: 0 0 12px; text-align: center; } }
+
+.aad-list { margin: 0; padding: 0; list-style: none; }
+.aad-list > li + li { border-top: 1px solid var(--aad-border-muted); }
+
+.aad-input {
+  display: block;
+  width: 100%;
+  margin: 8px 0 4px;
+  padding: 6px 12px;
+  border: 1px solid var(--aad-border);
+  border-radius: 6px;
+  color: var(--aad-fg);
+  background: var(--aad-bg);
+  font: inherit;
+  &:focus { outline: 2px solid var(--aad-focus); outline-offset: -1px; }
+}
+
+/* ── Pull request rows ────────────────────────────────── */
+.aad-pr-row { padding: 10px 0; }
+.aad-pr-title {
+  display: block;
+  color: var(--aad-fg);
+  font-weight: 600;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  &:hover { color: var(--aad-accent); text-decoration: underline; }
+}
+.aad-pr-meta { margin-top: 2px; color: var(--aad-fg-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aad-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.aad-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+  &--success { color: var(--aad-success); border-color: color-mix(in srgb, var(--aad-success) 40%, transparent); background: color-mix(in srgb, var(--aad-success) 10%, transparent); }
+  &--danger { color: var(--aad-danger); border-color: color-mix(in srgb, var(--aad-danger) 40%, transparent); background: color-mix(in srgb, var(--aad-danger) 10%, transparent); }
+  &--attention { color: var(--aad-attention); border-color: color-mix(in srgb, var(--aad-attention) 40%, transparent); background: color-mix(in srgb, var(--aad-attention) 10%, transparent); }
+  &--muted { color: var(--aad-fg-muted); border-color: var(--aad-border); background: var(--aad-bg-inset); }
+}
+
+/* ── Favorites ────────────────────────────────────────── */
+// Reordering: the handle is the only drag source; a line shows where the row will land.
+.aad-fav-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  &.is-dragging { opacity: .4; }
+  &.is-drop-before::before,
+  &.is-drop-after::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--aad-accent);
+    border-radius: 1px;
+  }
+  &.is-drop-before::before { top: -1px; }
+  &.is-drop-after::after { bottom: -1px; }
+}
+.aad-grip {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 24px;
+  margin-left: -6px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--aad-fg-muted);
+  background: transparent;
+  cursor: grab;
+  opacity: .55;
+  &:hover, &:focus-visible { opacity: 1; background: var(--aad-bg-hover); }
+  &:active { cursor: grabbing; }
+}
+.aad-fav-main { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.aad-fav-name {
+  display: block;
+  color: var(--aad-fg);
+  font-weight: 600;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  &:hover { color: var(--aad-accent); text-decoration: underline; }
+}
+.aad-fav-links { display: flex; align-items: center; gap: 10px; }
+
+/* ── Search + floating results ────────────────────────── */
+.aad-search { position: relative; }
+.aad-search .aad-input { margin: 0; padding: 8px 12px; font-size: 14px; }
+.aad-popover {
+  position: absolute;
+  z-index: 100;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 60vh;
+  padding: 4px 0;
+  overflow-y: auto;
+  background: var(--aad-bg);
+  border: 1px solid var(--aad-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(1, 4, 9, .18);
+  &[hidden] { display: none; }
+  .aad-empty { padding: 12px 16px; text-align: left; }
+}
+.aad-hit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 0;
+  &.is-active, &:hover { background: var(--aad-bg-hover); }
+}
+.aad-hit-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  padding: 8px 8px 8px 16px;
+  color: var(--aad-fg);
+  text-decoration: none;
+}
+.aad-hit-name { font-weight: 600; mark { color: inherit; background: color-mix(in srgb, var(--aad-attention) 25%, transparent); border-radius: 2px; } }
+.aad-hit-desc { color: var(--aad-fg-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; mark { color: inherit; background: color-mix(in srgb, var(--aad-attention) 25%, transparent); } }
+.aad-hit-lang { color: var(--aad-fg-muted); font-size: 12px; }
+.aad-star { font-size: 16px; &.is-on { color: var(--aad-attention); } }
+
+/* ── SSO notice ───────────────────────────────────────── */
+.aad-sso {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--aad-attention) 40%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--aad-attention) 10%, transparent);
+  .aad-sso-text { display: flex; flex-direction: column; font-size: 13px; span { color: var(--aad-fg-muted); } }
+  .aad-sso-actions { display: flex; flex-shrink: 0; flex-wrap: wrap; gap: 8px; a { text-decoration: none; } }
+  &--compact { margin: 8px 0 0; padding: 8px 12px; flex-direction: column; align-items: flex-start; gap: 8px; border-radius: 8px; }
+  &:empty { display: none; }
+}
+
+/* ── Empty / error states ─────────────────────────────── */
+.aad-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 28px 16px;
+  text-align: center;
+}
+.aad-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 8px;
+  color: var(--aad-fg-muted);
+  background: var(--aad-bg-inset);
+  border: 1px solid var(--aad-border-muted);
+  border-radius: 50%;
+}
+.aad-empty-title { color: var(--aad-fg); font-size: 14px; font-weight: 600; }
+.aad-empty-message { max-width: 280px; color: var(--aad-fg-muted); font-size: 12px; }
+.aad-empty-state--danger .aad-empty-icon { color: var(--aad-danger); border-color: color-mix(in srgb, var(--aad-danger) 30%, transparent); background: color-mix(in srgb, var(--aad-danger) 8%, transparent); }
+.aad-popover .aad-empty-state { padding: 20px 16px; }
+
+/* The CI chip is a button that opens the checks modal. */
+button.aad-chip--button {
+  font-family: inherit;
+  cursor: pointer;
+  &:hover { filter: brightness(.95); text-decoration: underline; }
+}
+
+/* ── Icons ────────────────────────────────────────────── */
+.aad-chip .aad-icon { width: 12px; height: 12px; }
+
+// Leading icon of a list row (pull request state, repository).
+.aad-row-icon { display: inline-flex; flex-shrink: 0; color: var(--aad-fg-muted); }
+.aad-pr-row { position: relative; padding-left: 24px; }
+.aad-pr-row > .aad-row-icon { position: absolute; top: 12px; left: 2px; &--open { color: var(--aad-success); } &--draft { color: var(--aad-fg-muted); } }
+.aad-fav-row > .aad-row-icon { margin-left: -2px; }
+
+// Search field with the magnifier inside.
+.aad-search-icon { position: absolute; top: 0; bottom: 0; left: 12px; z-index: 1; display: flex; align-items: center; color: var(--aad-fg-muted); pointer-events: none; }
+.aad-search .aad-input.aad-search-input { padding-left: 36px; }
+.aad-hit-icon { padding-left: 16px; align-self: flex-start; padding-top: 12px; }
+.aad-hit-icon + .aad-hit-main { padding-left: 0; }
+.aad-sso-icon { display: inline-flex; flex-shrink: 0; color: var(--aad-attention); }
+.aad-sso .aad-sso-text { flex: 1; min-width: 0; }
+.aad-sso--compact .aad-sso-icon { display: none; }

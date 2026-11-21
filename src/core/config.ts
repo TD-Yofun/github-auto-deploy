@@ -7,10 +7,10 @@ export interface Config {
   /** Show the log-file hint in the run panel (logs are always persisted). */
   saveLog: boolean;
   panelVisible: boolean;
-  /** Render the "My pull requests" section on the GitHub home sidebar. */
-  showPullRequests: boolean;
-  /** Render the "Organization repositories" section on the GitHub home sidebar. */
-  showOrganizationRepos: boolean;
+  /** Replace the GitHub home page with the work dashboard (favorites, PRs, repository search). */
+  homeDashboard: boolean;
+  /** Comma-separated organization logins for repository search; empty = detect automatically. */
+  organizations: string;
 }
 
 export const INTERVAL_MIN = 5;
@@ -21,8 +21,8 @@ const STORAGE_KEYS: Record<keyof Config, string> = {
   interval: 'interval',
   saveLog: 'save_log',
   panelVisible: 'panel_visible',
-  showPullRequests: 'show_pull_requests',
-  showOrganizationRepos: 'show_organization_repos',
+  homeDashboard: 'home_dashboard',
+  organizations: 'organizations',
 };
 
 export function normalizeInterval(value: unknown): number {
@@ -36,8 +36,8 @@ export function loadConfig(): Config {
     interval: normalizeInterval(GM_getValue(STORAGE_KEYS.interval, INTERVAL_DEFAULT)),
     saveLog: GM_getValue(STORAGE_KEYS.saveLog, false),
     panelVisible: GM_getValue(STORAGE_KEYS.panelVisible, true),
-    showPullRequests: GM_getValue(STORAGE_KEYS.showPullRequests, true),
-    showOrganizationRepos: GM_getValue(STORAGE_KEYS.showOrganizationRepos, true),
+    homeDashboard: GM_getValue(STORAGE_KEYS.homeDashboard, true),
+    organizations: String(GM_getValue(STORAGE_KEYS.organizations, '')),
   };
 }
 

@@ -20,7 +20,7 @@
 - **看门狗自动刷新** —— 若 10 分钟无进展则自动 reload 页面，并基于 session 恢复监控
 - **跨刷新持久化** —— 通过 `wasRunning()` 检测，刷新后自动恢复计数器、事件时间线和日志
 - **日志始终持久化** —— 每个 run 的日志缓冲区跨刷新保留，可随时下载 `aad-run-<runId>.log`
-- **My PRs 侧栏区块** —— 在 `github.com/` 首页的 Top repositories 下方显示我创建的 Open PR 与我已 Review 的 Open PR；点击会在新标签页打开
+- **工作面板** —— 用常用仓库、我的 Open PR（合并 / CI / Review 状态）、需要我 Review 的 PR 和组织仓库搜索替换 GitHub 首页；支持识别 SSO 未授权
 - **组织仓库搜索** —— 在 `github.com/` 首页加载你所属的组织，并按关键词搜索组织仓库；结果点击后在新标签页打开
 - **bfcache 安全** —— 通过 `pageshow.persisted` 在浏览器前进/后退后重新初始化面板
 - **全局错误捕获** —— `window.error` 和 `unhandledrejection` 会输出到面板日志
@@ -60,14 +60,14 @@
 
 ### 设置
 
-GitHub 顶部 header 图标区（Issues / Pull requests / Inbox 旁）新增了设置入口；运行面板标题栏和 Tampermonkey 菜单（**⚙ Settings**）打开的是同一个对话框。修改即时生效。
+GitHub 顶部 header 图标区（Issues / Pull requests / Inbox 旁）新增了设置入口；运行面板标题栏和 Tampermonkey 菜单（**⚙ Settings**）打开的是同一个对话框。修改即时生效。对话框左侧是菜单、右侧是所选内容：**Monitoring**（轮询间隔、日志提示）、**Dashboard**（工作面板开关、组织）和 **About**（版本、链接）；下次打开会停在上次使用的菜单，窄屏时菜单变成顶部标签行（方向键 / Home / End 切换）。
 
 | 设置项 | 说明 |
 |--------|------|
 | **Polling interval** | 兜底轮询间隔秒数（5–300，默认 15），监控中修改也会在下一次 tick 生效 |
 | **Show log file path** | 切换面板中日志文件提示的显示（无论开关如何，日志始终持久化） |
-| **My pull requests** | 显示/隐藏 GitHub 首页侧栏的 PR 区块 |
-| **Organization repositories** | 显示/隐藏 GitHub 首页侧栏的组织仓库搜索 |
+| **Work dashboard** | 用工作面板替换 GitHub 首页（关闭即恢复原页面） |
+| **Organizations** | 仓库搜索使用的组织 login，逗号分隔；留空则自动识别 |
 
 ### 执行报告与日志
 
@@ -81,20 +81,31 @@ GitHub 顶部 header 图标区（Issues / Pull requests / Inbox 旁）新增了�
 
 ### 强制更新
 
-每次加载 GitHub 页面时，脚本会对比自身 `@version` 与最新 Release（缓存 15 分钟）。版本过期时**所有功能被禁用**：不能监控（包括刷新后的自动恢复）、不显示首页组件、不能打开设置；顶部设置图标显示红点，点击弹出带安装链接的「Update required」对话框，运行面板也显示同样的提示。若版本检查本身失败（网络/GitHub 异常），脚本会放行，避免锁死正在进行的部署。长期不刷新的标签页要到下次加载页面才会重新检查。
+每次加载 GitHub 页面时，脚本会对比自身 `@version` 与最新 Release（缓存 15 分钟）。版本过期时**所有功能被禁用**：不能监控（包括刷新后的自动恢复）、不显示首页组件、不能打开设置；顶部设置图标显示红点，点击弹出带安装链接的「Update required」对话框，运行面板也显示同样的提示。若版本检查本身失败（网络/GitHub 异常），脚本会放行，避免锁死正在进行的部署。长期不刷新的标签页要到下次加载页面才会重新检查——也可以用 **设置 → About → Check for updates** 立即检查：它会跳过缓存；已是最新或检查失败时只给出提示、不会锁定任何功能；发现新版本时立刻锁定。
 
 ### 面板交互
 
 - 点击右侧边缘的 **◀ AAD** 标签展开/收起面板
 - 标题栏的 **▶** 按钮收起面板
 
-### My PRs 侧栏区块
+### 工作面板
 
-在 GitHub 首页，Top repositories 下方的独立区块会通过当前已登录的 GitHub 会话加载我创建的 Open PR 和我已 Review 的 Open PR。它使用当前 GitHub 登录账号作为 author/reviewer 过滤条件，首次进入首页时加载，之后仅在点击刷新按钮时重新加载。
+在 `github.com/` 首页，脚本用卡片式面板替换 GitHub 原生首页内容（只是隐藏：在设置里关闭 **Work dashboard** 即可恢复原页面）：
 
-### 组织仓库搜索
+- **搜索框** —— 聚焦后输入即可搜索组织内的仓库，结果以悬浮框显示；↑/↓ 选择、Enter 打开、☆ 加入常用仓库。组织会自动识别（先读 GitHub 首页内嵌的组织列表，再读账号切换器，最后是待授权 SSO 的组织），也可在 **设置 → Dashboard → Organizations** 中指定。
+- **常用仓库** —— 我自己的收藏列表（存于 Tampermonkey 存储，与 GitHub 自带的收藏无关），带 PRs / Actions 快捷链接。在搜索结果里点 ☆ 添加，或输入 `owner/repo`（或粘贴仓库 URL）后按 Enter 添加；输入即过滤。**手动排序**：拖动每行左侧的手柄（⋮⋮），或聚焦手柄后按 ↑ / ↓，顺序会被保存；筛选时手柄隐藏。
+- **我的 Open PR** —— 带合并状态（可合并 / 冲突 / 落后 / 被阻止）、CI 状态和 Review 状态。如果因为等待 review 而被阻止，会直接写明在等谁（例如 *Awaiting Talkdesk/industries*）；悬停标签可看 GitHub 的原始说明。点击 **CI** 标签会弹出 modal，列出全部检查项（失败的在前，其次是需要审批、运行中、通过、跳过），含耗时、*Required* 标记和日志链接。
+- **需要我 Review 的 PR** —— 只显示和你个人相关的 review：**点名我的请求**（`user-review-requested`），加上**我已经开始 review、还没整体通过的 PR**（`reviewed-by:@me`，不含我自己的 PR）。只是通过团队（如 CODEOWNERS）间接到达我的请求被有意排除——在大型组织里那会是几百条。该卡片只是简单列表（标题、仓库、作者、时间），合并 / CI / Review 状态只在我自己的 PR 上显示。
 
-首页侧栏会优先读取 GitHub 首页仪表盘上下文切换器中的组织列表（`dialog#switch_dashboard_context_left_column-dialog`），并以 `/settings/organizations` 和 `/user/orgs` 作为回退。没有组织时隐藏整个搜索区域；只有一个组织时自动使用该组织并隐藏下拉框；多个组织时才显示组织选择。输入仓库关键词并点击 **Search**，脚本会使用 GitHub 仓库搜索条件（`org:<组织> <关键词>`）展示结果，点击后在新标签页打开仓库。组织信息和搜索结果均通过当前浏览器登录会话请求，不保存也不需要 Token。
+空状态和错误状态统一显示「图标 + 标题 + 说明」（无需 review、SSO 隐藏了结果、GitHub 无法访问等）。
+
+布局：三张等宽卡片；宽度低于 960px 时变成两列（最后一张撑满整行），低于 640px 时单列。
+
+同一行的卡片等高，内容过长时在卡片内部滚动，不会把页面撑长；每张卡片最多显示 10 条（review 卡片 20 条），底部有 "Showing N of M" 说明。
+
+所有数据都通过已登录会话读取 GitHub 自身的 JSON（搜索页数据，以及 PR 页面的 `page_data/merge_box` 和 `status_checks`），不保存也不需要 Token。状态按 head commit 缓存 2 分钟，切回标签页超过 3 分钟会自动刷新。
+
+**SSO：** 如果已登录 GitHub 但没有授权某个组织的 SAML SSO，GitHub 对该组织的私有仓库和 PR 什么都不返回。面板会通过页面数据中的 `sso_organizations` 识别这种情况，并显示带 **Authorize <组织>** 按钮的提示，而不是误导性的空列表。
 
 ## 工作原理
 
@@ -181,7 +192,7 @@ yarn start            # 提供本地 userscript，直接在 GitHub 页面调试
 yarn dev              # yarn start 的别名
 yarn dev:build        # 改动时重新构建开发版 userscript
 yarn dev:all          # 改动时同时重新构建两份
-yarn preview:ui       # 本地预览 My PRs 小部件：http://127.0.0.1:5173
+yarn preview:ui       # 本地 UI 预览（设置对话框、运行面板）：http://127.0.0.1:5173
 ```
 
 要直接在 GitHub 页面调试，运行 `yarn start` 后，首次打开并安装本地开发脚本：
@@ -195,23 +206,27 @@ src/
   main.ts              ← 入口 —— 串联模块、页面检测、生命周期
   core/
     report.ts          ← 报告数据模型 + Markdown 导出（core）
-    config.ts          ← 持久化配置（interval、saveLog 提示、panelVisible、首页组件开关）
+    config.ts          ← 持久化配置（interval、saveLog 提示、panelVisible、homeDashboard、organizations）
     state.ts           ← 运行时状态类型 + 看门狗常量
     log-store.ts       ← 始终开启的日志持久化（批量缓冲、防抖写盘）
     session.ts         ← 跨刷新的 session 持久化
     scheduler.ts       ← 基于 Web Worker 的定时器（规避后台标签页节流）
     pull-requests.ts   ← 基于已登录 GitHub HTML 的 PR 查询
-    organization-repositories.ts ← 组织成员关系和仓库搜索
+    github.ts          ← 同源请求工具：页面内嵌 JSON、page_data JSON、SSO 链接
+    repo-search.ts     ← 组织仓库搜索
+    organizations.ts   ← 搜索哪些组织（设置 → GitHub 内嵌列表 → 账号切换器 → SSO 列表）
+    favorites.ts       ← 常用仓库（GM 存储）
+    sso.ts             ← 未授权 SSO 的组织
+    storage-cleanup.ts ← 14 天清理 run 级存储
     version-check.ts   ← 与最新 GitHub Release 比对，结果缓存
   api/
     skip-timers.ts     ← MutationObserver + 3 种 DOM 点击策略
   ui/
     styles.ts          ← 通过 GM_addStyle 注入编译后的 Sass
-    styles.scss        ← Sass 入口；分模块样式位于 styles/（tokens、components、panel、settings、widgets）
+    styles.scss        ← Sass 入口；分模块样式位于 styles/（tokens、components、panel、settings、dashboard）
     settings.ts        ← 顶部设置入口 + 设置对话框
     ui.ts              ← 面板构建、渲染、事件绑定、报告渲染
-    pr-overview.ts     ← GitHub 首页 PR 小部件
-    org-repo-search.ts  ← GitHub 首页组织仓库搜索
+    dashboard/         ← 工作面板：dashboard.ts（挂载）、pr-card、favorites-card、search-box、chips、sso-notice
   utils/
     helpers.ts         ← ts()、esc()、formatDuration()
     url.ts             ← URL 解析 + Deploy (PRD) 页面检测

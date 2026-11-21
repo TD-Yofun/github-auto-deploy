@@ -32,8 +32,9 @@ export function getCurrentVersion(): string {
   }
 }
 
-export async function checkLatestVersion(current: string): Promise<VersionCheckResult> {
-  const cached = readCache();
+/** `force` skips the 15-minute cache (the manual "Check for updates" button); the result is still cached. */
+export async function checkLatestVersion(current: string, force = false): Promise<VersionCheckResult> {
+  const cached = force ? null : readCache();
   // Use cache only if cached.latest is still >= current. If the installed script
   // is newer than what we last saw as "latest", the cache is definitely stale
   // (user just updated) — refetch so we surface the next release promptly.

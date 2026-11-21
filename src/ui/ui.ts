@@ -6,7 +6,7 @@ import { clockTime, eventIcon, reportToMarkdown, type Report } from '../core/rep
 import { appendLogToStore, getStoredLogs } from '../core/log-store';
 import { Config, saveConfigField } from '../core/config';
 import type { State } from '../core/state';
-import { ICON_CHEVRON_RIGHT, ICON_DOWNLOAD, ICON_SETTINGS } from './icons';
+import { ICON_CHEVRON_RIGHT, ICON_DOWNLOAD, ICON_PAUSE, ICON_PLAY, ICON_ROCKET, ICON_SETTINGS, ICON_STOP } from './icons';
 
 export interface UIElements {
   panel: HTMLDivElement;
@@ -29,7 +29,7 @@ export function buildUI(runId: string, config: Config): UIElements {
   panel.id = 'aad-panel';
   panel.innerHTML = `
     <div id="aad-header">
-      <span class="aad-title">Auto-Approve Deploy</span>
+      <span class="aad-title"><span class="aad-title-icon">${ICON_ROCKET}</span>Auto-Approve Deploy</span>
       <span class="aad-btns">
         <button id="aad-dl-log-btn" class="aad-icon-btn" title="Download log" aria-label="Download log">${ICON_DOWNLOAD}</button>
         <button id="aad-settings-btn" class="aad-icon-btn" title="Settings" aria-label="Settings">${ICON_SETTINGS}</button>
@@ -39,8 +39,8 @@ export function buildUI(runId: string, config: Config): UIElements {
     <div id="aad-body">
       <div id="aad-info">Loading run info...</div>
       <div id="aad-controls">
-        <button id="aad-toggle-btn" class="aad-btn aad-btn--primary">Start</button>
-        <button id="aad-pause-btn" class="aad-btn" hidden>Pause</button>
+        <button id="aad-toggle-btn" class="aad-btn aad-btn--primary">${ICON_PLAY}Start</button>
+        <button id="aad-pause-btn" class="aad-btn" hidden>${ICON_PAUSE}Pause</button>
       </div>
       <div id="aad-status-bar">
         <span id="aad-status-text">Idle</span>
@@ -113,10 +113,10 @@ export function renderRunInfo(el: UIElements, info: { owner: string; repo: strin
 }
 
 export function renderToggle(el: UIElements, running: boolean, paused = false): void {
-  el.$toggleBtn.textContent = running ? 'Stop' : 'Start';
+  el.$toggleBtn.innerHTML = running ? `${ICON_STOP}Stop` : `${ICON_PLAY}Start`;
   el.$toggleBtn.className = `aad-btn ${running ? 'aad-btn--danger' : 'aad-btn--primary'}`;
   el.$pauseBtn.hidden = !running;
-  el.$pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+  el.$pauseBtn.innerHTML = paused ? `${ICON_PLAY}Resume` : `${ICON_PAUSE}Pause`;
 }
 
 /** Show or hide the log-file hint (driven by the `saveLog` setting). */

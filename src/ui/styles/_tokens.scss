@@ -1,7 +1,8 @@
 /* Theme tokens: follow GitHub's Primer variables so light/dark modes just work. */
 #aad-panel,
 #aad-tab,
-#aad-settings-overlay {
+.aad-modal-overlay,
+#aad-dashboard {
   --aad-bg: var(--bgColor-default, #fff);
   --aad-bg-inset: var(--bgColor-muted, #f6f8fa);
   --aad-bg-hover: var(--control-transparent-bgColor-hover, rgba(129, 139, 152, .12));

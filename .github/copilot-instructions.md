@@ -10,14 +10,19 @@ Tampermonkey userscript that auto-approves GitHub Actions deployment gates on `D
 src/
 ├── main.ts                      # Entry — wires modules, page detection, lifecycle, global error handlers
 ├── core/
-│   ├── config.ts                # GM_getValue/setValue persistent config (interval, saveLog, panelVisible, showPullRequests, showOrganizationRepos)
+│   ├── config.ts                # GM_getValue/setValue persistent config (interval, saveLog, panelVisible, homeDashboard, organizations)
 │   ├── state.ts                 # Runtime state types; exports WATCHDOG_TIMEOUT_MS = 10 * 60 * 1000
 │   ├── log-store.ts             # Always-on per-run log buffer with debounced GM_setValue flush
 │   ├── storage-cleanup.ts       # Index + 14-day pruning of per-run GM storage keys
 │   ├── report.ts                # Report model (buildReport/reportToMarkdown) shared by panel + Markdown
 │   ├── session.ts               # SessionData (cross-refresh resume); keyed by runId
 │   ├── scheduler.ts             # Web Worker-based scheduleTick/cancelTick (avoids background tab throttling)
-│   ├── pull-requests.ts         # Signed-in GitHub HTML pull request discovery
+│   ├── github.ts                # Same-origin helpers: embedded page JSON, page_data JSON, SSO URL
+│   ├── pull-requests.ts         # PR lists (/pulls/search JSON) + status (page_data/merge_box, status_checks)
+│   ├── repo-search.ts           # Org repo search (search page blackbirdSearchRoute JSON)
+│   ├── organizations.ts         # Orgs to search: setting → embedded userOrganizations → switcher (+ lazy fragment) → SSO list
+│   ├── favorites.ts             # Favorite repos in GM storage
+│   ├── sso.ts                   # Orgs whose SSO is unauthorized (results come back empty)
 │   └── version-check.ts         # Compare vs latest userscript release asset; cache result; block outdated
 ├── api/
 │   └── skip-timers.ts           # MutationObserver + 3 click strategies for the gate button
@@ -26,7 +31,7 @@ src/
 │   ├── styles.scss              # Sass entry; partials in styles/ (tokens use Primer vars → light/dark)
 │   ├── settings.ts              # Header settings entry (.AppHeader-actions) + settings dialog
 │   ├── ui.ts                    # Panel HTML/render/event binding; summary report + Markdown export
-│   └── pr-overview.ts           # GitHub home pull request section below Top repositories
+│   └── dashboard/               # Work dashboard replacing the GitHub home (dashboard.ts mounts into .application-main)
 └── utils/
     ├── helpers.ts               # ts(), esc(), formatDuration()
     └── url.ts                   # parseRunUrl() + isDeployPrdPage() (matches /Deploy\s*\(PRD\)/)
@@ -47,7 +52,7 @@ GM_notification, GM_listValues, GM_deleteValue, unsafeWindow
 
 | Key | Purpose |
 |-----|---------|
-| `aad_config` | Global config (interval, saveLog, panelVisible, showPullRequests, showOrganizationRepos) |
+| `aad_config` | Global config (interval, saveLog, panelVisible, homeDashboard, organizations) |
 | `aad_running_${runId}` | `true` while monitoring; used by `wasRunning()` for resume |
 | `aad_session_${runId}` | SessionData (counters, timeline, `lastProgressAt`) |
 | `aad_log_${runId}` | Persisted log buffer (always written; never gated) |
@@ -68,7 +73,7 @@ GM_notification, GM_listValues, GM_deleteValue, unsafeWindow
 `main.ts → checkPage()` runs on every navigation event:
 1. URL must match `/{owner}/{repo}/actions/runs/{id}` → `parseRunUrl()`
 2. Page header workflow label must match `/Deploy\s*\(PRD\)/i` → `isDeployPrdPage()` (substring/emoji-prefix tolerant)
-3. If both → build/restore the panel; otherwise only the GitHub home pull request widget is considered
+3. If both → build/restore the panel; otherwise only the GitHub home work dashboard is considered
 
 ### Scheduler (scheduler.ts)
 
@@ -107,11 +112,24 @@ window.addEventListener('unhandledrejection', /* → log */);
 - `resumeMonitoring()` → re-arm observer, reset `lastProgressAt = Date.now()`, clear `paused`, schedule next tick
 - `bindPanelEvents()` wires `#aad-pause-btn`; `renderToggle(el, running, paused)` shows label correctly
 
-### Pull request sidebar section (pr-overview.ts)
+### Work dashboard (ui/dashboard/)
 
-- Mounted only on `github.com/` below Top repositories
-- Fetches authored and `reviewed-by` open PRs for the current `meta[name="user-login"]` account from GitHub's authenticated HTML search pages once per home-page visit, then only when the refresh button is clicked
-- Uses `target="_blank"` links for direct PR navigation
+- `mountDashboard(enabled, orgs)` runs from `checkPage()`; on `/` it adds `html.aad-home` (CSS hides every `.application-main` child except `#aad-dashboard`) and prepends the dashboard. Leaving `/` or turning it off removes both, restoring GitHub's page. A MutationObserver re-attaches it after Turbo navigations.
+- **Never scrape HTML links** — GitHub's pages are React apps. Read `script[data-target="react-app.embeddedData"]` (`fetchEmbeddedPayload`): `/pulls/search` → `pullsDashboardSurfaceContentRoute.results`, `/search?type=repositories` → `blackbirdSearchRoute.results`. PR status uses `pull/<n>/page_data/merge_box` and `page_data/status_checks` with `Accept: application/json`, `X-Requested-With: XMLHttpRequest`, `GitHub-Verified-Fetch: true` (`fetchJson`).
+- **SSO:** without an authorized SSO session GitHub returns empty results; `pullsDashboardSurfaceLayoutRoute.sso.sso_organizations` is the authoritative list (`core/sso.ts`). `protected_org_logins` in search is NOT proof of missing SSO (listed regardless).
+- Status mapping lives in `deriveStatus()` (pure, `core/pull-requests.ts`). **`statusRollup.combinedState` is PASSED / FAILED / PENDING / PENDING_APPROVAL, not the REST API's SUCCESS / FAILURE** — an earlier version only recognized SUCCESS and showed every green PR as "CI running". The per-state `summary` counts are the primary signal; `combinedState` is only a fallback. `PENDING_APPROVAL` is its own CI state (fork workflows waiting for approval).
+- "Blocked" is explained from `pendingReviewRequests` (team logins look like `org/team`) and the first failed `mergeRequirements` condition; the message repeats sentences, so it is de-duplicated.
+- **Review queue** (`review`): only what is personal to the user — `user-review-requested:@me` (asked directly) plus `reviewed-by:@me -author:@me -review:approved` (I started reviewing, not approved yet), requests first, de-duplicated. `review-requested:@me` was rejected: it also matches *team* requests, which was 548 PRs (62% bots) for one real account. `-author` / `-review:approved` partition `reviewed-by` exactly (checked: 25 = 23 + 2). `&page=N` paginates search (25 per page).
+- **Favorite order = stored order** (`moveFavorite(name, position)`; `position` is a *gap* 0…length, as drag-and-drop yields). The row is `draggable` only while its handle is pressed, so links/text stay selectable; handles are hidden while filtering because filtered rows don't map to positions. Keyboard: ↑/↓ on the handle, focus restored after the re-render.
+- **Favorites are ours only** (`core/favorites.ts`, GM storage). GitHub's own sources were evaluated and dropped: `/dashboard/my_top_repositories` ignores every query param and is capped at 7, and GitHub's native favorites (`/dashboard/favorites.json`) is a separate feature the user chose not to use.
+- Status (merge / CI / review chips, the CI details modal) exists **only on "My open pull requests"** (`showStatus`). The review card is a plain list and must not fetch `page_data/*` (it is 2 requests per row). `PullRequestStatus.checks` keeps every check so the modal (`ci-modal.ts`) opens from `statusCache` without another request.
+- **Organization detection**: the account switcher's list is a *lazy* `include-fragment` that is empty at page load once SSO is authorized, and an empty answer used to be cached — so search silently had no organization. Order now: setting → `copilot-chat-input-partial` embedded `props.userOrganizations` (always on the page) → switcher links / its `ajax_context_list` fragment → SSO list; an empty result is never cached.
+- **Icons**: use the shared stroke SVGs in `ui/icons.ts` (`currentColor`, so they follow light/dark), not emoji, for new UI. Titles use `.aad-title-icon`, rows `.aad-row-icon`, chips get a 12px icon via `.aad-chip .aad-icon`; transport icons (play/pause/stop) are filled. Never use GitHub's `.octicon` class (it forces `fill`).
+- **Settings dialog**: left menu (`TABS` in `ui/settings.ts`: Monitoring / Dashboard / About) + panes, WAI-ARIA tabs (roving `tabindex`, ←/→/↑/↓/Home/End, selection follows focus), remembers the last pane, menu becomes a top row below 600 px. Add a setting = add it to the right pane's `body()`.
+- **Modals** (settings, CI details): use the shared `.aad-modal-overlay` (dim + `backdrop-filter: blur`, `overscroll-behavior: contain`) and call `lockScroll()` when opening / `unlockScroll()` when closing (`ui/scroll-lock.ts`, reference-counted; only unlock if an overlay was actually removed). A Turbo navigation removes the overlay without calling close, so the lock also resets itself on `turbo:load` / `turbo:render` / `pageshow` when no overlay is left.
+- Empty/error states always go through `renderEmptyState()` (icon + title + message), never a bare text line.
+- Layout: **three equal-width cards** (`repeat(3, minmax(0,1fr))`; 2 columns below 960 px with the last card spanning, 1 below 640 px). The search box is full width (no visible title; the `h1` is screen-reader only) so it lines up with the outer card edges; cards stretch to the tallest (capped) and scroll inside.
+- Always `target="_blank"` links; escape everything with `esc()`/`renderMarked()` (search highlights arrive as `<em>` markers).
 
 ### Cross-refresh resume
 
@@ -129,7 +147,7 @@ All state is keyed by `runId`, so multiple tabs running different deploys are in
 - `yarn build:dev` / `yarn build:prod` → individual builds
 - `yarn start` / `yarn dev` → local userscript server for direct GitHub debugging; install `__vite-plugin-monkey.install.user.js` once in Tampermonkey
 - `yarn dev:build` / `yarn dev:all` → build watch modes
-- `yarn preview:ui` → local Vite preview for the My PRs sidebar
+- `yarn preview:ui` → local Vite preview (settings dialog, run panel)
 - **Always run `yarn build` after touching `src/**`** before committing — both `.user.js` files must be in sync with source.
 - Release: `yarn release patch|minor|major` (release-it bumps + builds + commits + tags), then `git push --follow-tags origin main` → `.github/workflows/release.yml` creates GitHub Release with both artifacts. Full procedure: `.agents/skills/release/SKILL.md`.
 
@@ -142,6 +160,7 @@ Conventional Commits enforced by commitlint. See `.agents/skills/commit/SKILL.md
 - ✅ Use `scheduleTick` / `cancelTick` for any periodic work
 - ✅ Key all new persistent state by `runId` **and** use the `aad_<kind>_` prefix list in `storage-cleanup.ts` (`RUN_KEY_PREFIXES`) so it is pruned after 14 days
 - ✅ Update `lastProgressAt` on any meaningful action so watchdog doesn't trigger
+- ✅ The manual **Check for updates** (Settings → About) calls `checkLatestVersion(current, true)` (skips the 15-min cache) and, if outdated, goes through the same `blockForUpdate()` + `checkPage()` as the automatic gate; a *failed* check must never lock anything.
 - ✅ Keep the forced-update gate in `main.ts` (`versionGate`): `checkPage()` must do nothing while `pending`, and no feature may start/mount while `blocked`; a failed check fails open
 - ❌ Don't gate log writes behind the `saveLog` flag
 - ❌ Don't call `setTimeout` directly for the main poll loop

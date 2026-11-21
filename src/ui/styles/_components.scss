@@ -1,5 +1,7 @@
 /* Shared building blocks for the run panel and the settings dialog. */
 .aad-icon { display: block; flex-shrink: 0; }
+/* Small icon that sits in front of a title or label. */
+.aad-title-icon { display: inline-flex; flex-shrink: 0; align-items: center; color: var(--aad-fg-muted); }
 
 .aad-icon-btn {
   display: inline-flex;
@@ -52,8 +54,9 @@
 
 #aad-panel button:focus-visible,
 #aad-tab:focus-visible,
-#aad-settings-overlay button:focus-visible,
-#aad-settings-overlay input:focus-visible {
+.aad-modal-overlay button:focus-visible,
+.aad-modal-overlay a:focus-visible,
+.aad-modal-overlay input:focus-visible {
   outline: 2px solid var(--aad-focus);
   outline-offset: -1px;
 }

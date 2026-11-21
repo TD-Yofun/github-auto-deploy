@@ -55,7 +55,7 @@ $ease: cubic-bezier(.4, 0, .2, 1);
   background: var(--aad-bg-inset);
   border-bottom: 1px solid var(--aad-border);
   user-select: none;
-  .aad-title { font-size: 14px; font-weight: 600; }
+  .aad-title { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
   .aad-btns { display: flex; gap: 2px; }
 }
 

@@ -20,8 +20,7 @@ Built with **Vite + TypeScript**, outputs `build/auto-approve-deploy.user.js` (d
 - **Watchdog auto-reload** — If no progress for 10 minutes, the page reloads and monitoring resumes from session state
 - **Persistent across refreshes** — Counters, event timeline, and logs are restored after page reload via `wasRunning()` detection
 - **Logs always persisted** — Per-run log buffer survives refresh; download as `aad-run-<runId>.log` anytime
-- **My PRs sidebar section** — On `github.com/`, adds your open pull requests and open PRs reviewed by you below Top repositories; each PR opens in a new tab
-- **Organization repository search** — On `github.com/`, loads organizations you belong to and searches their repositories by keyword through your signed-in GitHub session
+- **Work dashboard** — Replaces GitHub's home page with favorites, my open PRs (merge / CI / review status), review requests and an organization repository search; SSO-aware
 - **bfcache safe** — `pageshow.persisted` re-initializes the panel after browser back/forward navigation
 - **Global error capture** — `window.error` and `unhandledrejection` are surfaced into the panel log
 - **Version check** — Compares against the latest public userscript release asset; outdated scripts are blocked with a prominent install link
@@ -60,14 +59,14 @@ Built with **Vite + TypeScript**, outputs `build/auto-approve-deploy.user.js` (d
 
 ### Settings
 
-A settings icon is added to GitHub's top header (next to the Issues / Pull requests / Inbox icons); the run panel header and the Tampermonkey menu (**⚙ Settings**) open the same dialog. Changes apply immediately.
+A settings icon is added to GitHub's top header (next to the Issues / Pull requests / Inbox icons); the run panel header and the Tampermonkey menu (**⚙ Settings**) open the same dialog. Changes apply immediately. The dialog has a menu on the left and the selected section on the right: **Monitoring** (polling interval, log hint), **Dashboard** (work dashboard on/off, organizations) and **About** (version, links); it reopens on the section you used last, and on narrow screens the menu becomes a row of tabs (arrow keys / Home / End switch sections).
 
 | Setting | Description |
 |---------|-------------|
 | **Polling interval** | Fallback poll interval in seconds (5–300, default 15); takes effect on the next tick, even while monitoring |
 | **Show log file path** | Toggle the log-file hint in the panel (logs are always persisted regardless) |
-| **My pull requests** | Show/hide the pull request section on the GitHub home sidebar |
-| **Organization repositories** | Show/hide the organization repository search on the GitHub home sidebar |
+| **Work dashboard** | Replace GitHub's home page with the dashboard (off = original page) |
+| **Organizations** | Organization logins for repository search, comma separated; empty = detect automatically |
 
 ### Execution Report & Logs
 
@@ -81,20 +80,31 @@ Per-run data (log, session, report) is stored in Tampermonkey storage. On startu
 
 ### Forced Updates
 
-On every GitHub page load the script compares its `@version` with the latest release (cached for 15 minutes). If it is outdated, **all features are disabled** — no monitoring (including resuming after a refresh), no home-page widgets, no settings; the header settings icon shows a red dot and opens an "Update required" dialog with the install link, and the run panel shows the same notice. If the check itself fails (network/GitHub error), the script proceeds so an in-flight deployment is never locked out. A tab that stays open across a new release is only re-checked on the next page load.
+On every GitHub page load the script compares its `@version` with the latest release (cached for 15 minutes). If it is outdated, **all features are disabled** — no monitoring (including resuming after a refresh), no home-page widgets, no settings; the header settings icon shows a red dot and opens an "Update required" dialog with the install link, and the run panel shows the same notice. If the check itself fails (network/GitHub error), the script proceeds so an in-flight deployment is never locked out. A tab that stays open across a new release is only re-checked on the next page load — or immediately via **Settings → About → Check for updates**, which skips the cache, reports "up to date" or a failed check without locking anything, and locks the script on the spot when a newer release exists.
 
 ### Panel Interactions
 
 - Click the **◀ AAD** tab on the right edge to expand/collapse the panel
 - **▶** button in the header collapses the panel
 
-### My PRs Sidebar Section
+### Work Dashboard
 
-On the GitHub home page, a separate section below Top repositories loads your open PRs and open PRs reviewed by you through your signed-in GitHub session. It uses the current GitHub login as the author/reviewer filter, loads once when you enter the home page, and loads again only when you click refresh.
+On `github.com/` the script replaces GitHub's home page with a dashboard of cards (GitHub's own content is only hidden — turn **Work dashboard** off in the settings to get it back):
 
-### Organization Repository Search
+- **Search bar** — focus it and type to search repositories of your organization(s); results float over the page, ↑/↓ + Enter open a result, ☆ adds it to the favorites. Organizations are detected automatically (the list GitHub embeds in its home page, then the account switcher, then organizations awaiting SSO), or set in **Settings → Dashboard → Organizations**.
+- **Favorite repositories** — your own list (stored in Tampermonkey storage, independent of GitHub's own favorites) with quick links to PRs and Actions. Add with ☆ in the search results, or type `owner/repo` (or paste a repository URL) and press Enter; filter by typing. **Reorder** by dragging a row's handle (⋮⋮) — or focus the handle and press ↑ / ↓; the order is saved. Handles are hidden while a filter is active.
+- **My open pull requests** — with merge status (Ready to merge / Conflicts / Behind base / Blocked), CI status and review status. When a PR is blocked on a review request it says who it waits on (e.g. *Awaiting Talkdesk/industries*); hover a chip for GitHub's own explanation. Click the **CI** chip to open a modal with every check (failed first, then needs-approval, running, passed, skipped), their durations, *Required* badges and links to the logs.
+- **Review requested** — what is on your plate as a reviewer: pull requests where you were asked **personally** (`user-review-requested`), plus pull requests you **already started reviewing** that are not approved yet (`reviewed-by:@me`, not yours). Requests that only reached you through a team (e.g. CODEOWNERS) are left out on purpose — in a large organization that is hundreds of pull requests. This card is a plain list (title, repository, author, age); merge/CI/review status is only shown for your own pull requests.
 
-The home-page sidebar reads organizations from GitHub's dashboard context switcher (`dialog#switch_dashboard_context_left_column-dialog`), with `/settings/organizations` and `/user/orgs` as fallbacks. The search section is hidden when you belong to no organizations, uses the only organization automatically when there is one, and shows an organization selector only when there are multiple. Enter a repository keyword and click **Search**. Results use GitHub repository search (`org:<organization> <keyword>`) and open the matching repository in a new tab. Organization membership and search results are requested only through the current browser session; no token is stored or required.
+Empty and error states show an icon, a title and a short message (nothing to review, SSO hiding results, GitHub unreachable…).
+
+Layout: three equal-width cards; two columns (the last card spans both) below 960 px, one column below 640 px.
+
+Cards in a row share one height and scroll inside, so one long list never stretches the page; each card shows at most 10 (review: 20) entries with a "Showing N of M" footer.
+
+Everything is read from GitHub's own JSON (search page data and the PR page's `page_data/merge_box` and `status_checks`) through your signed-in session; no token is stored or required. Statuses are cached for 2 minutes (per head commit) and the dashboard refreshes when you return to the tab after 3 minutes.
+
+**SSO:** if you are signed in to GitHub but have not authorized an organization's SAML SSO, GitHub returns nothing for its private repositories and pull requests. The dashboard detects this (`sso_organizations` in GitHub's page data) and shows a banner with an **Authorize <org>** button instead of a misleading empty state.
 
 ## How It Works
 
@@ -184,7 +194,7 @@ yarn start            # serve the local userscript for direct GitHub debugging
 yarn dev              # alias for yarn start
 yarn dev:build        # rebuild the development userscript on change
 yarn dev:all          # rebuild both on change
-yarn preview:ui       # local My PRs widget mock preview at http://127.0.0.1:5173
+yarn preview:ui       # local UI preview (settings dialog, run panel) at http://127.0.0.1:5173
 ```
 
 For direct GitHub debugging, run `yarn start` and install the local development
@@ -198,23 +208,27 @@ src/
   main.ts              ← Entry point — wires modules, page detection, lifecycle
   core/
     report.ts          ← Report data model + Markdown export (core)
-    config.ts          ← Persistent config (interval, saveLog hint, panelVisible, home widget toggles)
+    config.ts          ← Persistent config (interval, saveLog hint, panelVisible, homeDashboard, organizations)
     state.ts           ← Runtime state types + watchdog constant
     log-store.ts       ← Always-on log persistence (batch buffer, debounced flush)
     session.ts         ← Session persistence across refreshes
     scheduler.ts       ← Web Worker-based timer (avoids background tab throttling)
-    pull-requests.ts   ← Signed-in GitHub HTML pull request discovery
-    organization-repositories.ts ← Organization membership and repository search
+    github.ts          ← Same-origin helpers: embedded page JSON, page_data JSON, SSO links
+    pull-requests.ts   ← PR lists + CI / review / mergeability status
+    repo-search.ts     ← Organization repository search
+    organizations.ts   ← Which organizations to search (setting → GitHub's embedded list → account switcher → SSO list)
+    favorites.ts       ← Favorite repositories (GM storage)
+    sso.ts             ← Organizations whose SSO is not authorized
+    storage-cleanup.ts ← 14-day pruning of per-run storage
     version-check.ts   ← Compare against latest userscript release asset; cache result
   api/
     skip-timers.ts     ← MutationObserver + 3-approach DOM-based clicker
   ui/
     styles.ts          ← Injects compiled Sass through GM_addStyle
-    styles.scss        ← Sass entry; partials in styles/ (tokens, components, panel, settings, widgets)
+    styles.scss        ← Sass entry; partials in styles/ (tokens, components, panel, settings, dashboard)
     settings.ts        ← Header settings entry + settings dialog
     ui.ts              ← Panel build, render, event binding, report rendering
-    pr-overview.ts     ← GitHub home pull request widget
-    org-repo-search.ts  ← GitHub home organization repository search
+    dashboard/         ← Work dashboard: dashboard.ts (mount), pr-card, favorites-card, search-box, chips, sso-notice
   utils/
     helpers.ts         ← ts(), esc(), formatDuration()
     url.ts             ← URL parsing + Deploy (PRD) page detection

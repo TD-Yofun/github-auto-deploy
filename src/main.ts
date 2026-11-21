@@ -23,8 +23,8 @@ import {
 } from './ui/ui';
 import { initSettings, openSettings, setUpdateRequired } from './ui/settings';
 import { renderUpdateNotice } from './ui/update-notice';
-import { mountPullRequestWidget } from './ui/pr-overview';
-import { mountOrganizationRepositorySearch } from './ui/org-repo-search';
+import { mountDashboard, updateDashboardOrganizations } from './ui/dashboard/dashboard';
+import { resetOrganizationCache } from './core/organizations';
 
 const config = loadConfig();
 const state: State = createState();
@@ -549,6 +549,7 @@ function blockForUpdate(v: VersionCheckResult): void {
   blockedVersion = v;
   setUpdateRequired(v);
   if (state.running) stop();
+  if (el) renderBlockedPanel();
   console.error(`[AAD] Outdated: ${v.current} → ${v.latest}. Update required.`);
 }
 
@@ -571,9 +572,7 @@ function checkPage(): void {
   if (!onTarget) {
     if (el) teardownPanel();
     const onHome = location.pathname === '/';
-    const featuresOn = versionGate === 'ok';
-    mountPullRequestWidget(featuresOn && onHome && config.showPullRequests);
-    mountOrganizationRepositorySearch(featuresOn && onHome && config.showOrganizationRepos);
+    mountDashboard(versionGate === 'ok' && onHome && config.homeDashboard, config.organizations);
     return;
   }
 
@@ -582,8 +581,7 @@ function checkPage(): void {
     if (el) teardownPanel();
     buildPanelFor(params!);
   }
-  mountPullRequestWidget(false);
-  mountOrganizationRepositorySearch(false);
+  mountDashboard(false, config.organizations);
 }
 
 // ── Settings ───────────────────────────────────────────────
@@ -593,14 +591,20 @@ function onConfigChange(key: keyof Config): void {
       if (el) applyLogHint(el, config.saveLog);
       log(config.saveLog ? '💾 日志记录已开启' : '💾 日志记录已关闭', config.saveLog ? 'ok' : 'info');
       break;
-    case 'showPullRequests':
-    case 'showOrganizationRepos':
+    case 'homeDashboard':
       checkPage();
+      break;
+    case 'organizations':
+      resetOrganizationCache();
+      updateDashboardOrganizations(config.organizations);
       break;
     // `interval` is read on every poll tick, nothing to apply.
   }
 }
-initSettings(config, onConfigChange);
+initSettings(config, onConfigChange, (v) => {
+  blockForUpdate(v);
+  checkPage(); // unmounts the dashboard and refuses further work
+});
 
 try {
   const removed = pruneStaleRuns();
