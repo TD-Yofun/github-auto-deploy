@@ -1,5 +1,12 @@
 
 
+## [1.0.20](https://github.com/TD-Yofun/github-auto-deploy/compare/v1.0.19...v1.0.20) (2026-11-25)
+
+
+### Features
+
+* favorite tags with tab filtering, personal repo search and calmer favorite rows ([f2fcd57](https://github.com/TD-Yofun/github-auto-deploy/commit/f2fcd57f9a2f6c0991fef5d1d7a13ad4bedb1c9f))
+
 ## [1.0.19](https://github.com/TD-Yofun/github-auto-deploy/compare/v1.0.18...v1.0.19) (2026-11-21)
 
 
