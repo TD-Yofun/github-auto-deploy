@@ -8,6 +8,8 @@ export const ICON_CHEVRON_RIGHT = icon('<path d="m6 3.5 4.5 4.5L6 12.5"/>');
 /** Six-dot drag handle (filled, unlike the stroke icons). */
 export const ICON_GRIP = '<svg class="aad-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false"><circle cx="6" cy="4" r="1.2"/><circle cx="10" cy="4" r="1.2"/><circle cx="6" cy="8" r="1.2"/><circle cx="10" cy="8" r="1.2"/><circle cx="6" cy="12" r="1.2"/><circle cx="10" cy="12" r="1.2"/></svg>';
 // General-purpose 16px icons (stroke unless noted).
+export const ICON_TAG = icon('<path d="M2 8.4V2.8A.8.8 0 0 1 2.8 2h5.6l5.6 5.6a.8.8 0 0 1 0 1.1l-4.6 4.6a.8.8 0 0 1-1.1 0z"/><circle cx="5.2" cy="5.2" r=".9"/>');
+export const ICON_PLAY_CIRCLE = icon('<circle cx="8" cy="8" r="6"/><path d="m6.7 5.6 3.8 2.4-3.8 2.4z"/>');
 export const ICON_STAR = icon('<path d="m8 1.9 1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2.1.7-4.3-3.1-3 4.3-.6z"/>');
 export const ICON_PULL = icon('<circle cx="4" cy="3.5" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="12.5" r="1.5"/><path d="M4 5v6M12 11V6.5a2 2 0 0 0-2-2H8"/><path d="m9.8 2.6-1.9 1.9 1.9 1.9"/>');
 export const ICON_EYE = icon('<path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/>');

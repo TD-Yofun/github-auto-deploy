@@ -1,7 +1,7 @@
-/** Organization repository search: results appear in a floating panel while the input has focus. */
+/** Repository search over the organizations and your own account: results appear in a floating panel while the input has focus. */
 import { addFavorite, isFavorite, removeFavorite, subscribeFavorites } from '../../core/favorites';
 import { LoginRequiredError } from '../../core/github';
-import { getOrganizations } from '../../core/organizations';
+import { getCurrentLogin, getOrganizations } from '../../core/organizations';
 import { searchRepositories, type RepositoryHit, type RepositorySearchResult } from '../../core/repo-search';
 import { getSsoOrganizations } from '../../core/sso';
 import { esc, renderMarked } from '../../utils/helpers';
@@ -27,7 +27,7 @@ export interface SearchBox {
 export function createSearchBox(getOrganizationSetting: () => string): SearchBox {
   const el = document.createElement('div');
   el.className = 'aad-search';
-  el.innerHTML = `<span class="aad-search-icon" aria-hidden="true">${ICON_SEARCH}</span><input class="aad-input aad-search-input" type="search" role="combobox" aria-expanded="false" aria-controls="aad-search-results" aria-label="Search organization repositories" placeholder="Search repositories…" autocomplete="off" spellcheck="false">
+  el.innerHTML = `<span class="aad-search-icon" aria-hidden="true">${ICON_SEARCH}</span><input class="aad-input aad-search-input" type="search" role="combobox" aria-expanded="false" aria-controls="aad-search-results" aria-label="Search organization and personal repositories" placeholder="Search repositories…" autocomplete="off" spellcheck="false">
     <div class="aad-popover" id="aad-search-results" role="listbox" hidden></div>`;
   const input = el.querySelector<HTMLInputElement>('input')!;
   const popover = el.querySelector<HTMLElement>('.aad-popover')!;
@@ -39,6 +39,13 @@ export function createSearchBox(getOrganizationSetting: () => string): SearchBox
   let timer: ReturnType<typeof setTimeout> | null = null;
   let organizations: string[] = [];
 
+  /** Human-readable scope: the organizations plus "your repositories". */
+  const scope = (): string => {
+    const parts = [...organizations, ...(getCurrentLogin() ? ['your repositories'] : [])];
+    if (parts.length === 0) return 'your organization';
+    return parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+  };
+
   const hits = (): RepositoryHit[] => (state.kind === 'ready' ? state.result.hits.slice(0, MAX_RESULTS) : []);
 
   function popoverBody(): string {
@@ -47,9 +54,9 @@ export function createSearchBox(getOrganizationSetting: () => string): SearchBox
       case 'error': return renderEmptyState({ icon: 'alert', title: "Couldn't search", message: state.message, danger: true });
       case 'ready': {
         const { query, result } = state;
+        const blocked = getSsoOrganizations().filter((o) => result.ssoBlocked.some((l) => l.toLowerCase() === o.login.toLowerCase()));
         if (result.hits.length === 0) {
-          const blocked = getSsoOrganizations().filter((o) => result.ssoBlocked.some((l) => l.toLowerCase() === o.login.toLowerCase()));
-          return renderEmptyState({ icon: 'search', title: 'No repositories found', message: `Nothing in ${organizations.join(', ') || 'your organization'} matches “${query}”.` }) + renderSsoNotice(blocked, true);
+          return renderEmptyState({ icon: 'search', title: 'No repositories found', message: `Nothing in ${scope()} matches “${query}”.` }) + renderSsoNotice(blocked, true);
         }
         return hits().map((hit, index) => {
           const starred = isFavorite(hit.fullName);
@@ -62,11 +69,10 @@ export function createSearchBox(getOrganizationSetting: () => string): SearchBox
             </a>
             <button type="button" class="aad-icon-btn aad-star${starred ? ' is-on' : ''}" data-star="${esc(hit.fullName)}" aria-pressed="${starred}" title="${starred ? 'Remove from favorites' : 'Add to favorites'}" aria-label="${starred ? 'Remove' : 'Add'} ${esc(hit.fullName)} ${starred ? 'from' : 'to'} favorites">${starred ? '★' : '☆'}</button>
           </div>`;
-        }).join('');
+        }).join('') + renderSsoNotice(blocked, true);
       }
       default: {
-        const where = organizations.length ? organizations.join(', ') : 'your organization';
-        return renderEmptyState({ icon: 'search', title: 'Search repositories', message: `Type a name to search in ${where}.` }) + renderSsoNotice(getSsoOrganizations(), true);
+        return renderEmptyState({ icon: 'search', title: 'Search repositories', message: `Type a name to search in ${scope()}.` }) + renderSsoNotice(getSsoOrganizations(), true);
       }
     }
   }
@@ -84,8 +90,9 @@ export function createSearchBox(getOrganizationSetting: () => string): SearchBox
     render();
     try {
       organizations = await getOrganizations(getOrganizationSetting());
-      if (organizations.length === 0) throw new Error('No organization found. Set one in the settings.');
-      const result = await searchRepositories(organizations, query);
+      const user = getCurrentLogin();
+      if (organizations.length === 0 && !user) throw new Error('No organization found. Set one in the settings.');
+      const result = await searchRepositories(organizations, query, user);
       if (run === generation) state = { kind: 'ready', query, result };
     } catch (error) {
       if (run !== generation) return;
@@ -143,7 +150,7 @@ export function createSearchBox(getOrganizationSetting: () => string): SearchBox
   async function updatePlaceholder(): Promise<void> {
     try {
       organizations = await getOrganizations(getOrganizationSetting());
-      if (organizations.length) input.placeholder = `Search repositories in ${organizations.join(', ')}…`;
+      if (organizations.length || getCurrentLogin()) input.placeholder = `Search repositories in ${scope()}…`;
     } catch { /* keep the generic placeholder */ }
   }
   void updatePlaceholder();

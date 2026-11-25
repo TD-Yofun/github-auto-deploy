@@ -131,14 +131,13 @@ html.aad-home .application-main > :not(#aad-dashboard) { display: none !importan
 }
 
 /* ── Favorites ────────────────────────────────────────── */
-// Reordering: the handle is the only drag source; a line shows where the row will land.
+// A favorite row is quiet: repository name and tags only. The handle (a 24px gutter, full row height),
+// the PR / Actions shortcuts and the tag / remove buttons appear on hover or keyboard focus.
+// The handle lives in the card body's 16px left padding and the buttons float over the row's right end, so
+// nothing is reserved and hovering never reflows the row (nor covers the repository name's start).
 .aad-fav-row {
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 0;
+  padding: 0;
   &.is-dragging { opacity: .4; }
   &.is-drop-before::before,
   &.is-drop-after::after {
@@ -153,25 +152,35 @@ html.aad-home .application-main > :not(#aad-dashboard) { display: none !importan
   &.is-drop-before::before { top: -1px; }
   &.is-drop-after::after { bottom: -1px; }
 }
+.aad-fav-line {
+  position: relative;
+  padding: 8px 0;
+}
 .aad-grip {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
+  position: absolute;
+  top: 2px;
+  left: -16px; // card body padding
+  display: flex;
+  align-items: flex-start; // icon on the name line; the hit area is the whole row
   justify-content: center;
-  width: 20px;
-  height: 24px;
-  margin-left: -6px;
-  padding: 0;
+  box-sizing: border-box;
+  width: 16px;
+  height: calc(100% - 4px); // buttons do not stretch between top and bottom
+  padding: 6px 0 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: 6px 0 0 6px;
   color: var(--aad-fg-muted);
   background: transparent;
   cursor: grab;
-  opacity: .55;
-  &:hover, &:focus-visible { opacity: 1; background: var(--aad-bg-hover); }
+  opacity: 0;
+  transition: opacity .12s;
   &:active { cursor: grabbing; }
 }
-.aad-fav-main { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.aad-fav-row:hover .aad-grip,
+.aad-fav-row:focus-within .aad-grip { opacity: .6; &:hover { opacity: 1; color: var(--aad-fg); background: var(--aad-bg-hover); } }
+.aad-grip:focus-visible { opacity: 1; color: var(--aad-fg); outline: 2px solid var(--aad-accent); outline-offset: -2px; }
+
+.aad-fav-main { min-width: 0; }
 .aad-fav-name {
   display: block;
   color: var(--aad-fg);
@@ -182,7 +191,28 @@ html.aad-home .application-main > :not(#aad-dashboard) { display: none !importan
   white-space: nowrap;
   &:hover { color: var(--aad-accent); text-decoration: underline; }
 }
-.aad-fav-links { display: flex; align-items: center; gap: 10px; }
+.aad-fav-owner { color: var(--aad-fg-muted); font-weight: 400; }
+
+// Floats over the end of the row (fading in from the name) instead of reserving width.
+.aad-fav-actions {
+  position: absolute;
+  top: 5px;
+  right: 0;
+  display: flex;
+  align-items: center;
+  padding-left: 22px;
+  background: linear-gradient(to right, transparent, var(--aad-bg) 22px);
+  opacity: 0;
+  transition: opacity .12s;
+  a.aad-icon-btn { text-decoration: none; }
+}
+.aad-fav-row:hover .aad-fav-actions,
+.aad-fav-row:focus-within .aad-fav-actions,
+.aad-fav-row.is-editing .aad-fav-actions { opacity: 1; }
+// Without hover (touch) the controls stay visible.
+@media (hover: none) {
+  .aad-fav-actions, .aad-fav-row .aad-grip { opacity: 1; }
+}
 
 /* ── Search + floating results ────────────────────────── */
 .aad-search { position: relative; }
@@ -281,7 +311,6 @@ button.aad-chip--button {
 .aad-row-icon { display: inline-flex; flex-shrink: 0; color: var(--aad-fg-muted); }
 .aad-pr-row { position: relative; padding-left: 24px; }
 .aad-pr-row > .aad-row-icon { position: absolute; top: 12px; left: 2px; &--open { color: var(--aad-success); } &--draft { color: var(--aad-fg-muted); } }
-.aad-fav-row > .aad-row-icon { margin-left: -2px; }
 
 // Search field with the magnifier inside.
 .aad-search-icon { position: absolute; top: 0; bottom: 0; left: 12px; z-index: 1; display: flex; align-items: center; color: var(--aad-fg-muted); pointer-events: none; }
@@ -291,3 +320,118 @@ button.aad-chip--button {
 .aad-sso-icon { display: inline-flex; flex-shrink: 0; color: var(--aad-attention); }
 .aad-sso .aad-sso-text { flex: 1; min-width: 0; }
 .aad-sso--compact .aad-sso-icon { display: none; }
+
+/* ── Favorite tags: tab strip, chips on rows, inline editor ── */
+.aad-tabs-wrap { margin: 4px 0 8px; border-bottom: 1px solid var(--aad-border-muted); }
+// One row that scrolls sideways (wheel, trackpad, keyboard); the faded edge shows where more tags are.
+.aad-tabs {
+  position: relative; // offsetParent for scrolling the selected tab into view
+  display: flex;
+  gap: 4px;
+  // Too many tags for one row: two rows, filled column by column, scrolling sideways.
+  &[data-rows="2"] {
+    display: grid;
+    grid-template-rows: repeat(2, auto);
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    align-content: start;
+  }
+  padding-bottom: 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+  &[data-fade="right"] {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  }
+  &[data-fade="left"] {
+    -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent);
+  }
+  &[data-fade="both"] {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+  }
+}
+.aad-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  min-width: 0;
+  max-width: 220px;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 14px;
+  color: var(--aad-fg-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  &:hover { color: var(--aad-fg); background: var(--aad-bg-hover); }
+  &.is-active { color: var(--aad-fg); background: var(--aad-bg-hover); font-weight: 600; }
+}
+// A very long tag name is truncated, its count never is.
+.aad-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.aad-tab-count { flex: none; padding: 0 6px; border-radius: 10px; background: var(--aad-bg-inset); font-size: 11px; font-weight: 500; line-height: 16px; }
+
+.aad-fav-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.aad-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--aad-accent) 28%, transparent);
+  border-radius: 10px;
+  color: var(--aad-accent);
+  background: color-mix(in srgb, var(--aad-accent) 9%, transparent);
+  font: inherit;
+  font-size: 11px;
+  line-height: 18px;
+  cursor: pointer;
+  &:hover { background: color-mix(in srgb, var(--aad-accent) 16%, transparent); }
+  &--removable { cursor: default; padding-right: 2px; }
+  &--removable button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    color: inherit;
+    background: transparent;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    &:hover { background: color-mix(in srgb, var(--aad-accent) 22%, transparent); }
+  }
+}
+.aad-icon-btn.is-on { color: var(--aad-accent); background: var(--aad-bg-hover); }
+
+.aad-tag-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 8px;
+  border: 1px solid var(--aad-border-muted);
+  border-radius: 8px;
+  background: var(--aad-bg-inset);
+}
+.aad-tag-list { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.aad-tag-input {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--aad-border);
+  border-radius: 6px;
+  color: var(--aad-fg);
+  background: var(--aad-bg);
+  font: inherit;
+  font-size: 12px;
+  &:focus { outline: 2px solid var(--aad-focus); outline-offset: -1px; }
+}

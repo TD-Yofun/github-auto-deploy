@@ -66,7 +66,7 @@ A settings icon is added to GitHub's top header (next to the Issues / Pull reque
 | **Polling interval** | Fallback poll interval in seconds (5–300, default 15); takes effect on the next tick, even while monitoring |
 | **Show log file path** | Toggle the log-file hint in the panel (logs are always persisted regardless) |
 | **Work dashboard** | Replace GitHub's home page with the dashboard (off = original page) |
-| **Organizations** | Organization logins for repository search, comma separated; empty = detect automatically |
+| **Organizations** | Organization logins for repository search, comma separated; empty = detect automatically (your own account is always searched too) |
 
 ### Execution Report & Logs
 
@@ -91,8 +91,8 @@ On every GitHub page load the script compares its `@version` with the latest rel
 
 On `github.com/` the script replaces GitHub's home page with a dashboard of cards (GitHub's own content is only hidden — turn **Work dashboard** off in the settings to get it back):
 
-- **Search bar** — focus it and type to search repositories of your organization(s); results float over the page, ↑/↓ + Enter open a result, ☆ adds it to the favorites. Organizations are detected automatically (the list GitHub embeds in its home page, then the account switcher, then organizations awaiting SSO), or set in **Settings → Dashboard → Organizations**.
-- **Favorite repositories** — your own list (stored in Tampermonkey storage, independent of GitHub's own favorites) with quick links to PRs and Actions. Add with ☆ in the search results, or type `owner/repo` (or paste a repository URL) and press Enter; filter by typing. **Reorder** by dragging a row's handle (⋮⋮) — or focus the handle and press ↑ / ↓; the order is saved. Handles are hidden while a filter is active.
+- **Search bar** — focus it and type to search repositories of your organization(s) **and your own account** in one go (the signed-in user is read from the page, no setting needed); results float over the page, ↑/↓ + Enter open a result, ☆ adds it to the favorites. Organizations are detected automatically (the list GitHub embeds in its home page, then the account switcher, then organizations awaiting SSO), or set in **Settings → Dashboard → Organizations**.
+- **Favorite repositories** — your own list (stored in Tampermonkey storage, independent of GitHub's own favorites) with quick links to PRs and Actions. Add with ☆ in the search results, or type `owner/repo` (or paste a repository URL) and press Enter; filter by typing. **Tag** a repository with the tag button on its row (type a tag and press Enter, or click an existing one); tags show as tabs above the list — **All** is always first and selected by default, then one tab per tag (alphabetical, with counts) in one row — or two rows when they do not fit — that scrolls sideways (mouse wheel, trackpad or arrow keys; a faded edge shows where more tags are), and filtering by text works inside a tab. A row shows only the repository name and its tags; the drag handle (a full-row-height strip in the card's left padding), PR / Actions shortcuts and the tag / remove buttons appear on hover or keyboard focus. Adding a repository while a tag tab is selected gives it that tag. **Reorder** by dragging a row's handle (⋮⋮) — or focus the handle and press ↑ / ↓; the order is saved. Handles are only shown on the **All** tab without a text filter.
 - **My open pull requests** — with merge status (Ready to merge / Conflicts / Behind base / Blocked), CI status and review status. When a PR is blocked on a review request it says who it waits on (e.g. *Awaiting Talkdesk/industries*); hover a chip for GitHub's own explanation. Click the **CI** chip to open a modal with every check (failed first, then needs-approval, running, passed, skipped), their durations, *Required* badges and links to the logs.
 - **Review requested** — what is on your plate as a reviewer: pull requests where you were asked **personally** (`user-review-requested`), plus pull requests you **already started reviewing** that are not approved yet (`reviewed-by:@me`, not yours). Requests that only reached you through a team (e.g. CODEOWNERS) are left out on purpose — in a large organization that is hundreds of pull requests. This card is a plain list (title, repository, author, age); merge/CI/review status is only shown for your own pull requests.
 
@@ -215,7 +215,7 @@ src/
     scheduler.ts       ← Web Worker-based timer (avoids background tab throttling)
     github.ts          ← Same-origin helpers: embedded page JSON, page_data JSON, SSO links
     pull-requests.ts   ← PR lists + CI / review / mergeability status
-    repo-search.ts     ← Organization repository search
+    repo-search.ts     ← Repository search over organizations + the signed-in user
     organizations.ts   ← Which organizations to search (setting → GitHub's embedded list → account switcher → SSO list)
     favorites.ts       ← Favorite repositories (GM storage)
     sso.ts             ← Organizations whose SSO is not authorized

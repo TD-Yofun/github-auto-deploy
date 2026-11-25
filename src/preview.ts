@@ -19,6 +19,7 @@ Object.assign(globalThis, {
 // ── Fixtures served by a fake fetch (same shapes as GitHub's embedded JSON / page_data) ──
 const params = new URLSearchParams(location.search);
 if (!params.has('empty')) store.set('favorite_repos', ['Talkdesk/atlas-apps-configuration', 'Talkdesk/api-gw-configuration', 'Talkdesk/insurer-360-app', 'Talkdesk/client-profile']);
+if (!params.has('empty')) store.set('favorite_tags', { 'talkdesk/atlas-apps-configuration': ['config', 'prod'], 'talkdesk/api-gw-configuration': ['config'], 'talkdesk/insurer-360-app': ['frontend'] });
 const sso = params.has('sso'); // ?sso → organization SSO not authorized (empty results + banner)
 const empty = params.has('empty'); // ?empty → no pull requests at all
 const failing = params.has('error'); // ?error → GitHub answers 500
@@ -75,6 +76,10 @@ const status: Record<string, [ReturnType<typeof mergeBox>, ReturnType<typeof che
 const repositories = ['atlas-apps-configuration', 'api-gw-configuration', 'insurer-360-app', 'client-profile', 'deployments', 'github-auto-deploy']
   .map((name, i) => ({ hl_name: `Talkdesk/${name}`, hl_trunc_description: `Description of <em>${name.split('-')[0]}</em> service`, language: i % 2 ? 'Go' : 'TypeScript', archived: i === 4, public: false, repo: { repository: { name, owner_login: 'Talkdesk' } } }));
 
+const personal = ['dotfiles', 'github-auto-deploy-sandbox']
+  .map((name) => ({ hl_name: `TD-Yofun/${name}`, hl_trunc_description: `My <em>${name.split('-')[0]}</em> repository`, language: 'Shell', archived: false, public: true, repo: { repository: { name, owner_login: 'TD-Yofun' } } }));
+document.head.insertAdjacentHTML('beforeend', '<meta name="user-login" content="TD-Yofun">');
+
 const page = (payload: unknown) =>
   new Response(`<script data-target="react-app.embeddedData" type="application/json">${JSON.stringify({ payload }).replace(/</g, '\\u003c')}</script>`, { status: 200 });
 const ssoLayout = { sso: { sso_organizations: sso ? [{ login: 'Talkdesk', name: 'Talkdesk' }] : [] } };
@@ -96,8 +101,10 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
     }));
   }
   if (url.pathname === '/search') {
-    const keyword = q.replace(/org:\S+/g, '').trim().toLowerCase();
-    const results = sso ? [] : repositories.filter((r) => r.hl_name.toLowerCase().includes(keyword));
+    const keyword = q.replace(/(?:org|user):\S+/g, '').trim().toLowerCase();
+    const owners = [...q.matchAll(/(?:org|user):(\S+)/g)].map((m) => m[1].toLowerCase());
+    const results = [...(sso ? [] : repositories), ...personal]
+      .filter((r) => owners.includes(r.repo.repository.owner_login.toLowerCase()) && r.hl_name.toLowerCase().includes(keyword));
     return delay(page({ blackbirdSearchRoute: { results, protected_org_logins: ['Talkdesk'] } }), 200);
   }
   const match = url.pathname.match(/\/pull\/(\d+)\/page_data\/(merge_box|status_checks)$/);

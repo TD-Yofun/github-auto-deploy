@@ -7,6 +7,12 @@ const LOGIN_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/;
 export const parseOrganizations = (value: string): string[] =>
   [...new Set(value.split(/[\s,]+/).filter((login) => LOGIN_RE.test(login)))];
 
+/** Login of the signed-in user (GitHub renders it into every page), or '' when unknown. */
+export function getCurrentLogin(): string {
+  const login = document.querySelector<HTMLMetaElement>('meta[name="user-login"]')?.content.trim() ?? '';
+  return LOGIN_RE.test(login) ? login : '';
+}
+
 /** `/orgs/<login>…` links inside a piece of the account switcher. */
 function organizationsFromLinks(root: ParentNode): string[] {
   const logins = new Map<string, string>();

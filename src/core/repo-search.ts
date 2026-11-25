@@ -1,4 +1,4 @@
-/** Repository search inside organizations, read from the embedded JSON of GitHub's search page. */
+/** Repository search inside organizations and the signed-in user's own account, read from the embedded JSON of GitHub's search page. */
 import { fetchEmbeddedPayload } from './github';
 import { fetchPullRequests } from './pull-requests';
 import { getSsoOrganizations, isSsoKnown } from './sso';
@@ -36,8 +36,9 @@ interface SearchPayload {
   };
 }
 
-export async function searchRepositories(organizations: string[], keyword: string): Promise<RepositorySearchResult> {
-  const scope = organizations.map((org) => `org:${org}`).join(' ');
+/** `org:` and `user:` qualifiers are OR-ed by GitHub, so one query covers every owner. */
+export async function searchRepositories(organizations: string[], keyword: string, user = ''): Promise<RepositorySearchResult> {
+  const scope = [...organizations.map((org) => `org:${org}`), ...(user ? [`user:${user}`] : [])].join(' ');
   const query = `${scope} ${keyword.trim()}`.trim();
   const payload = await fetchEmbeddedPayload<SearchPayload>(`/search?q=${encodeURIComponent(query)}&type=repositories`);
   const route = payload.blackbirdSearchRoute;
@@ -59,11 +60,13 @@ export async function searchRepositories(organizations: string[], keyword: strin
     }];
   });
 
-  // An empty result only means "SSO needed" for an SSO-protected org this session has not
+  // No result from any organization only means "SSO needed" for an SSO-protected org this session has not
   // authorized. Protected orgs are listed even for authorized sessions, so confirm against the
   // authoritative list that the pull request pages report.
   let ssoBlocked: string[] = [];
-  if (hits.length === 0 && (route.protected_org_logins?.length ?? 0) > 0) {
+  const organizationLogins = new Set(organizations.map((o) => o.toLowerCase()));
+  const organizationHit = hits.some((h) => organizationLogins.has(h.owner.toLowerCase()));
+  if (!organizationHit && organizations.length > 0 && (route.protected_org_logins?.length ?? 0) > 0) {
     if (!isSsoKnown()) await fetchPullRequests('authored').catch(() => undefined);
     const unauthorized = new Set(getSsoOrganizations().map((o) => o.login.toLowerCase()));
     ssoBlocked = organizations.filter((o) => unauthorized.has(o.toLowerCase()));

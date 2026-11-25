@@ -1,5 +1,11 @@
-/** Favorite repositories, stored per user in Tampermonkey storage. */
+/**
+ * Favorite repositories and their tags, stored per user in Tampermonkey storage.
+ * The ordered list of names lives in `favorite_repos`; tags are a separate map so the list (and
+ * its order) is untouched by tagging.
+ */
 const KEY = 'favorite_repos';
+const TAGS_KEY = 'favorite_tags';
+export const MAX_TAG_LENGTH = 24;
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 
 type Listener = (favorites: string[]) => void;
@@ -34,7 +40,82 @@ export function addFavorite(fullName: string): boolean {
 }
 
 export function removeFavorite(fullName: string): void {
+  const tags = readTags();
+  if (delete tags[tagKey(fullName)]) GM_setValue(TAGS_KEY, tags);
   save(getFavorites().filter((f) => f.toLowerCase() !== fullName.toLowerCase()));
+}
+
+// ── Tags ───────────────────────────────────────────────────
+
+/** `owner/repo` → lower-cased key; repository names are case-insensitive on GitHub. */
+const tagKey = (fullName: string): string => fullName.toLowerCase();
+const sameTag = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+
+/** Trim, drop a leading `#`, collapse spaces, cap the length; null when nothing is left. */
+export function normalizeTag(input: string): string | null {
+  const tag = input.trim().replace(/^#+/, '').replace(/\s+/g, ' ').slice(0, MAX_TAG_LENGTH).trim();
+  return tag || null;
+}
+
+function readTags(): Record<string, string[]> {
+  const raw = GM_getValue<unknown>(TAGS_KEY, {});
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).map(([key, value]) => [
+      key,
+      Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [],
+    ]),
+  );
+}
+
+function saveTags(tags: Record<string, string[]>): void {
+  GM_setValue(TAGS_KEY, tags);
+  listeners.forEach((listener) => listener(getFavorites()));
+}
+
+export const getTags = (fullName: string): string[] => readTags()[tagKey(fullName)] ?? [];
+
+export const hasTag = (fullName: string, tag: string): boolean => getTags(fullName).some((t) => sameTag(t, tag));
+
+/** Returns false when the tag is empty or the repository already has it. */
+export function addTag(fullName: string, input: string): boolean {
+  const tag = normalizeTag(input);
+  if (!tag || !isFavorite(fullName) || hasTag(fullName, tag)) return false;
+  const tags = readTags();
+  const key = tagKey(fullName);
+  // Reuse an existing spelling ("Backend" vs "backend") so the tabs never show two of the same tag.
+  const spelling = listTags().find((t) => sameTag(t.tag, tag))?.tag ?? tag;
+  tags[key] = [...(tags[key] ?? []), spelling];
+  saveTags(tags);
+  return true;
+}
+
+export function removeTag(fullName: string, tag: string): void {
+  const tags = readTags();
+  const key = tagKey(fullName);
+  const rest = (tags[key] ?? []).filter((t) => !sameTag(t, tag));
+  if (rest.length > 0) tags[key] = rest; else delete tags[key];
+  saveTags(tags);
+}
+
+export interface TagSummary {
+  tag: string;
+  /** Favorites carrying the tag. */
+  count: number;
+}
+
+/** Every tag in use by a current favorite, alphabetical (case-insensitive), with its count. */
+export function listTags(): TagSummary[] {
+  const tags = readTags();
+  const counts = new Map<string, TagSummary>();
+  for (const name of getFavorites()) {
+    for (const tag of tags[tagKey(name)] ?? []) {
+      const entry = counts.get(tag.toLowerCase());
+      if (entry) entry.count++;
+      else counts.set(tag.toLowerCase(), { tag, count: 1 });
+    }
+  }
+  return [...counts.values()].sort((a, b) => a.tag.localeCompare(b.tag, undefined, { sensitivity: 'base' }));
 }
 
 /**
